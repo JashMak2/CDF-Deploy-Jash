@@ -660,7 +660,7 @@ select:focus {
   display: grid;
   grid-template-columns: 1fr 320px;
   gap: 2.5rem;
-  min-height: 650px;
+  min-height: 550px;
 }
 
 @media (max-width: 1024px) {
@@ -689,6 +689,7 @@ select:focus {
   display: flex;
   flex-direction: column;
   gap: 1.5rem;
+  justify-content: flex-start;
 }
 
 .message {
