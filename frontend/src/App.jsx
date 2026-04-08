@@ -529,6 +529,8 @@ function AITab({ calculatorState }) {
 function GeographicTab({ onSelectState }) {
   const [states, setStates] = useState(null)
   const [selectedState, setSelectedState] = useState('AZ')
+  const [compareMode, setCompareMode] = useState(false)
+  const [comparisonSelected, setComparisonSelected] = useState(['AZ', 'CA'])
 
   useEffect(() => {
     async function loadStates() {
@@ -545,69 +547,191 @@ function GeographicTab({ onSelectState }) {
   const allStates = states?.all_states || []
   const selected = allStates.find(s => s.state === selectedState)
 
+  const toggleCompareSelection = (stateName) => {
+    setComparisonSelected(prev =>
+      prev.includes(stateName)
+        ? prev.filter(s => s !== stateName)
+        : [...prev, stateName]
+    )
+  }
+
+  const comparisonStates = allStates.filter(s => comparisonSelected.includes(s.state))
+
   return (
     <div className="tab-content">
       <h2>Geographic Overview</h2>
       <p className="subtitle-text">All 50 US states ranked by renewable energy investment potential</p>
 
-      <div className="geo-layout">
-        <div className="state-grid">
-          {allStates.length > 0 ? (
-            allStates.sort((a, b) => b.solar_potential_score - a.solar_potential_score).map((s, i) => (
-              <button
-                key={i}
-                className={`state-card ${selectedState === s.state ? 'active' : ''}`}
-                onClick={() => {
-                  setSelectedState(s.state)
-                  onSelectState(s.state)
-                }}
-              >
-                <h4>{s.state}</h4>
-                <p className="score">Score: {s.solar_potential_score}</p>
-                <p className="capacity">{(s.solar_capacity_gw + s.wind_capacity_gw).toFixed(1)} GW</p>
-              </button>
-            ))
-          ) : (
-            <p style={{ opacity: 0.5, gridColumn: '1/-1' }}>Loading states...</p>
+      <div className="geo-mode-toggle">
+        <button
+          className={`mode-btn ${!compareMode ? 'active' : ''}`}
+          onClick={() => setCompareMode(false)}
+        >
+          📍 Single State
+        </button>
+        <button
+          className={`mode-btn ${compareMode ? 'active' : ''}`}
+          onClick={() => setCompareMode(true)}
+        >
+          ⚖️ Compare States
+        </button>
+      </div>
+
+      {!compareMode ? (
+        // ========== SINGLE STATE VIEW ==========
+        <div className="geo-layout">
+          <div className="state-grid">
+            {allStates.length > 0 ? (
+              allStates.sort((a, b) => b.solar_potential_score - a.solar_potential_score).map((s, i) => (
+                <button
+                  key={i}
+                  className={`state-card ${selectedState === s.state ? 'active' : ''}`}
+                  onClick={() => {
+                    setSelectedState(s.state)
+                    onSelectState(s.state)
+                  }}
+                >
+                  <h4>{s.state}</h4>
+                  <p className="score">Score: {s.solar_potential_score}</p>
+                  <p className="capacity">{(s.solar_capacity_gw + s.wind_capacity_gw).toFixed(1)} GW</p>
+                </button>
+              ))
+            ) : (
+              <p style={{ opacity: 0.5, gridColumn: '1/-1' }}>Loading states...</p>
+            )}
+          </div>
+
+          {selected && (
+            <div className="state-details">
+              <h3>{selected.state}</h3>
+              <div className="details-grid">
+                <div className="detail-box">
+                  <p className="label">Investment Score</p>
+                  <p className="big-number">{selected.solar_potential_score}</p>
+                </div>
+                <div className="detail-box">
+                  <p className="label">Solar Capacity</p>
+                  <p className="big-number">{selected.solar_capacity_gw?.toFixed(1)}</p>
+                  <p className="label small">GW</p>
+                </div>
+                <div className="detail-box">
+                  <p className="label">Wind Capacity</p>
+                  <p className="big-number">{selected.wind_capacity_gw?.toFixed(1)}</p>
+                  <p className="label small">GW</p>
+                </div>
+                {selected.avg_irradiance_kwh_m2_day && (
+                  <div className="detail-box">
+                    <p className="label">Solar Irradiance</p>
+                    <p className="big-number">{selected.avg_irradiance_kwh_m2_day.toFixed(1)}</p>
+                    <p className="label small">kWh/m²/day</p>
+                  </div>
+                )}
+                {selected.avg_wind_speed_m_s && (
+                  <div className="detail-box">
+                    <p className="label">Avg Wind Speed</p>
+                    <p className="big-number">{selected.avg_wind_speed_m_s?.toFixed(1)}</p>
+                    <p className="label small">m/s</p>
+                  </div>
+                )}
+              </div>
+            </div>
           )}
         </div>
-
-        {selected && (
-          <div className="state-details">
-            <h3>{selected.state}</h3>
-            <div className="details-grid">
-              <div className="detail-box">
-                <p className="label">Investment Score</p>
-                <p className="big-number">{selected.solar_potential_score}</p>
-              </div>
-              <div className="detail-box">
-                <p className="label">Solar Capacity</p>
-                <p className="big-number">{selected.solar_capacity_gw?.toFixed(1)}</p>
-                <p className="label small">GW</p>
-              </div>
-              <div className="detail-box">
-                <p className="label">Wind Capacity</p>
-                <p className="big-number">{selected.wind_capacity_gw?.toFixed(1)}</p>
-                <p className="label small">GW</p>
-              </div>
-              {selected.avg_irradiance_kwh_m2_day && (
-                <div className="detail-box">
-                  <p className="label">Solar Irradiance</p>
-                  <p className="big-number">{selected.avg_irradiance_kwh_m2_day.toFixed(1)}</p>
-                  <p className="label small">kWh/m²/day</p>
-                </div>
-              )}
-              {selected.avg_wind_speed_m_s && (
-                <div className="detail-box">
-                  <p className="label">Avg Wind Speed</p>
-                  <p className="big-number">{selected.avg_wind_speed_m_s?.toFixed(1)}</p>
-                  <p className="label small">m/s</p>
-                </div>
-              )}
-            </div>
+      ) : (
+        // ========== COMPARISON VIEW ==========
+        <div className="comparison-container">
+          <div className="comparison-grid">
+            {allStates.length > 0 ? (
+              allStates.sort((a, b) => b.solar_potential_score - a.solar_potential_score).map((s, i) => (
+                <button
+                  key={i}
+                  className={`state-card-select ${comparisonSelected.includes(s.state) ? 'selected' : ''}`}
+                  onClick={() => toggleCompareSelection(s.state)}
+                  title={comparisonSelected.includes(s.state) ? 'Remove from comparison' : 'Add to comparison'}
+                >
+                  <h4>{s.state}</h4>
+                  <p className="score">Score: {s.solar_potential_score}</p>
+                  <p className="capacity">{(s.solar_capacity_gw + s.wind_capacity_gw).toFixed(1)} GW</p>
+                  {comparisonSelected.includes(s.state) && (
+                    <div className="check-badge">✓</div>
+                  )}
+                </button>
+              ))
+            ) : (
+              <p style={{ opacity: 0.5, gridColumn: '1/-1' }}>Loading states...</p>
+            )}
           </div>
-        )}
-      </div>
+
+          {comparisonStates.length > 0 && (
+            <div className="comparison-results">
+              <h3>📊 Comparison: {comparisonStates.map(s => s.state).join(' vs ')}</h3>
+
+              <div className="comparison-table-wrapper">
+                <table className="comparison-table">
+                  <thead>
+                    <tr>
+                      <th>Metric</th>
+                      {comparisonStates.map(s => (
+                        <th key={s.state}>{s.state}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr>
+                      <td className="metric-label">Investment Score</td>
+                      {comparisonStates.map(s => (
+                        <td key={s.state} className="metric-value">
+                          <strong>{s.solar_potential_score}</strong>
+                        </td>
+                      ))}
+                    </tr>
+                    <tr>
+                      <td className="metric-label">Solar Capacity (GW)</td>
+                      {comparisonStates.map(s => (
+                        <td key={s.state} className="metric-value">{s.solar_capacity_gw?.toFixed(1)}</td>
+                      ))}
+                    </tr>
+                    <tr>
+                      <td className="metric-label">Wind Capacity (GW)</td>
+                      {comparisonStates.map(s => (
+                        <td key={s.state} className="metric-value">{s.wind_capacity_gw?.toFixed(1)}</td>
+                      ))}
+                    </tr>
+                    <tr>
+                      <td className="metric-label">Total Capacity (GW)</td>
+                      {comparisonStates.map(s => (
+                        <td key={s.state} className="metric-value">
+                          <strong>{(s.solar_capacity_gw + s.wind_capacity_gw).toFixed(1)}</strong>
+                        </td>
+                      ))}
+                    </tr>
+                    {comparisonStates.some(s => s.avg_irradiance_kwh_m2_day) && (
+                      <tr>
+                        <td className="metric-label">Solar Irradiance (kWh/m²/day)</td>
+                        {comparisonStates.map(s => (
+                          <td key={s.state} className="metric-value">
+                            {s.avg_irradiance_kwh_m2_day?.toFixed(1) || '—'}
+                          </td>
+                        ))}
+                      </tr>
+                    )}
+                    {comparisonStates.some(s => s.avg_wind_speed_m_s) && (
+                      <tr>
+                        <td className="metric-label">Avg Wind Speed (m/s)</td>
+                        {comparisonStates.map(s => (
+                          <td key={s.state} className="metric-value">
+                            {s.avg_wind_speed_m_s?.toFixed(1) || '—'}
+                          </td>
+                        ))}
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   )
 }

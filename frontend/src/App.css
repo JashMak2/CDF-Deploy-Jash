@@ -874,6 +874,41 @@ select:focus {
 }
 
 /* ============ GEOGRAPHIC TAB ============ */
+.geo-mode-toggle {
+  display: flex;
+  gap: 1rem;
+  margin-bottom: 2rem;
+  justify-content: center;
+}
+
+.mode-btn {
+  padding: 0.9rem 2rem;
+  background: rgba(31, 40, 68, 0.4);
+  border: 1.5px solid rgba(59, 130, 246, 0.2);
+  border-radius: 12px;
+  color: var(--text-muted);
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+}
+
+.mode-btn:hover {
+  border-color: var(--primary);
+  color: var(--primary);
+  background: rgba(31, 40, 68, 0.6);
+}
+
+.mode-btn.active {
+  background: linear-gradient(135deg, var(--primary), var(--secondary));
+  border-color: var(--secondary);
+  color: white;
+  box-shadow: 0 8px 24px rgba(59, 130, 246, 0.3);
+  font-weight: 700;
+}
+
 .geo-layout {
   display: grid;
   grid-template-columns: 1fr 300px;
@@ -960,6 +995,188 @@ select:focus {
 .state-card .capacity {
   font-weight: bold;
   margin-top: 0.5rem;
+}
+
+/* ========== COMPARISON VIEW ========== */
+.comparison-container {
+  display: flex;
+  flex-direction: column;
+  gap: 3rem;
+}
+
+.comparison-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 1rem;
+}
+
+@media (max-width: 1024px) {
+  .comparison-grid {
+    grid-template-columns: repeat(4, 1fr);
+  }
+}
+
+@media (max-width: 768px) {
+  .comparison-grid {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+
+.state-card-select {
+  background: rgba(21, 27, 47, 0.4);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1.5px solid rgba(59, 130, 246, 0.2);
+  border-radius: 14px;
+  padding: 1.4rem;
+  cursor: pointer;
+  transition: all 0.5s cubic-bezier(0.34, 1.56, 0.64, 1);
+  text-align: center;
+  position: relative;
+  overflow: hidden;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.state-card-select h4 {
+  margin: 0 0 0.5rem 0;
+  font-size: 1.2rem;
+}
+
+.state-card-select .score {
+  font-size: 0.9rem;
+  color: var(--text-muted);
+}
+
+.state-card-select .capacity {
+  font-weight: bold;
+  margin-top: 0.5rem;
+}
+
+.state-card-select:hover {
+  border-color: var(--primary);
+  box-shadow: 0 12px 40px rgba(59, 130, 246, 0.25);
+  transform: translateY(-10px) scale(1.05);
+  background: rgba(21, 27, 47, 0.6);
+}
+
+.state-card-select.selected {
+  background: linear-gradient(135deg, rgba(59, 130, 246, 0.3), rgba(139, 92, 246, 0.2));
+  border-color: var(--primary);
+  color: var(--primary);
+  box-shadow: 0 16px 48px rgba(59, 130, 246, 0.4);
+  font-weight: 900;
+}
+
+.check-badge {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 28px;
+  height: 28px;
+  background: linear-gradient(135deg, var(--success), #059669);
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: white;
+  font-weight: 900;
+  font-size: 1.1rem;
+  box-shadow: 0 4px 12px rgba(16, 185, 129, 0.4);
+}
+
+.comparison-results {
+  background: rgba(21, 27, 47, 0.4);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1.5px solid rgba(59, 130, 246, 0.25);
+  border-radius: 24px;
+  padding: 2.5rem;
+  box-shadow: 0 8px 32px rgba(59, 130, 246, 0.1), inset 0 1px 2px rgba(255, 255, 255, 0.08);
+}
+
+.comparison-results h3 {
+  font-size: 1.8rem;
+  color: var(--primary);
+  margin: 0 0 2rem 0;
+  font-weight: 800;
+}
+
+.comparison-table-wrapper {
+  overflow-x: auto;
+  border-radius: 16px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
+}
+
+.comparison-table {
+  width: 100%;
+  border-collapse: collapse;
+  background: rgba(10, 14, 26, 0.6);
+  border-radius: 16px;
+  overflow: hidden;
+  border: 1px solid rgba(59, 130, 246, 0.15);
+}
+
+.comparison-table thead {
+  background: linear-gradient(90deg, rgba(59, 130, 246, 0.15), rgba(139, 92, 246, 0.1));
+  border-bottom: 2px solid rgba(59, 130, 246, 0.25);
+}
+
+.comparison-table th {
+  padding: 1.2rem;
+  text-align: center;
+  font-weight: 700;
+  color: var(--primary);
+  font-size: 0.95rem;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  border-right: 1px solid rgba(59, 130, 246, 0.1);
+}
+
+.comparison-table th:last-child {
+  border-right: none;
+}
+
+.comparison-table tbody tr {
+  border-bottom: 1px solid rgba(59, 130, 246, 0.1);
+  transition: all 0.3s ease;
+}
+
+.comparison-table tbody tr:hover {
+  background-color: rgba(59, 130, 246, 0.08);
+}
+
+.comparison-table tbody tr:last-child {
+  border-bottom: none;
+}
+
+.metric-label {
+  padding: 1rem 1.5rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-align: left;
+  font-size: 0.9rem;
+  background: rgba(31, 40, 68, 0.3);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  border-right: 1px solid rgba(59, 130, 246, 0.1);
+}
+
+.metric-value {
+  padding: 1rem 1.5rem;
+  text-align: center;
+  color: var(--text);
+  font-weight: 600;
+  font-size: 0.95rem;
+  border-right: 1px solid rgba(59, 130, 246, 0.1);
+}
+
+.metric-value:last-child {
+  border-right: none;
+}
+
+.comparison-table tbody tr:nth-child(even) .metric-value {
+  background: rgba(31, 40, 68, 0.2);
 }
 
 .state-details {
