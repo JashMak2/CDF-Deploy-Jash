@@ -58,7 +58,6 @@ body {
   opacity: 0.35;
   z-index: 0;
   pointer-events: none;
-  animation: windmillSpin 20s linear infinite;
   filter: drop-shadow(0 0 80px rgba(99, 102, 241, 0.3));
 }
 
@@ -70,15 +69,6 @@ body {
 .windmill-bg .blades {
   transform-origin: 100px 100px;
   animation: windmillBladeSpin 8s linear infinite;
-}
-
-@keyframes windmillSpin {
-  0% {
-    transform: rotate(0deg);
-  }
-  100% {
-    transform: rotate(360deg);
-  }
 }
 
 @keyframes windmillBladeSpin {

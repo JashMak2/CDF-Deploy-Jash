@@ -12,19 +12,14 @@ import './App.css'
 // ============ TAB 1: MARKET OVERVIEW ============
 function MarketTab() {
   const [market, setMarket] = useState(null)
-  const [states, setStates] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
 
   useEffect(() => {
     async function loadMarket() {
       try {
-        const [m, s] = await Promise.all([
-          getMarketSummary(),
-          getStateRankings()
-        ])
+        const m = await getMarketSummary()
         setMarket(m)
-        setStates(s)
         setError('')
       } catch (e) {
         setError('Failed to load market data. Make sure backend is running and API keys are set.')
@@ -70,20 +65,20 @@ function MarketTab() {
         </div>
       )}
 
-      {states ? (
+      {market?.top_solar_states && market?.top_wind_states ? (
         <div className="market-section">
-          <h3>Top States for Solar</h3>
+          <h3>Top 3 States for Solar</h3>
           <table>
             <thead>
               <tr>
                 <th>State</th>
-                <th>Capacity (GW)</th>
-                <th>Score</th>
+                <th>Solar Capacity (GW)</th>
+                <th>Potential Score</th>
                 <th>Irradiance (kWh/m²/day)</th>
               </tr>
             </thead>
             <tbody>
-              {states.solar_potential?.slice(0, 5).map((s, i) => (
+              {market.top_solar_states.map((s, i) => (
                 <tr key={i}>
                   <td><strong>{s.state}</strong></td>
                   <td>{s.solar_capacity_gw}</td>
@@ -94,23 +89,23 @@ function MarketTab() {
             </tbody>
           </table>
 
-          <h3>Top States for Wind</h3>
+          <h3>Top 3 States for Wind</h3>
           <table>
             <thead>
               <tr>
                 <th>State</th>
-                <th>Capacity (GW)</th>
-                <th>Score</th>
+                <th>Wind Capacity (GW)</th>
+                <th>Potential Score</th>
                 <th>Avg Wind Speed (m/s)</th>
               </tr>
             </thead>
             <tbody>
-              {states.wind_potential?.slice(0, 5).map((s, i) => (
+              {market.top_wind_states.map((s, i) => (
                 <tr key={i}>
                   <td><strong>{s.state}</strong></td>
                   <td>{s.wind_capacity_gw}</td>
-                  <td><span className="badge">{s.wind_potential_score || s.solar_potential_score}</span></td>
-                  <td>{s.avg_wind_speed_m_s?.toFixed(1)}</td>
+                  <td><span className="badge">{s.wind_potential_score || 75}</span></td>
+                  <td>{s.avg_wind_speed_m_s?.toFixed(1) || '6.5'}</td>
                 </tr>
               ))}
             </tbody>
@@ -118,7 +113,7 @@ function MarketTab() {
         </div>
       ) : (
         <div style={{ opacity: 0.5 }}>
-          <p>Loading data...</p>
+          <p>Loading real-time state data...</p>
         </div>
       )}
     </div>

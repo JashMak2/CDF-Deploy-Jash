@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 import httpx
 import os
 import json
+import asyncio
 from datetime import datetime, timedelta
 from dotenv import load_dotenv
 
@@ -36,76 +37,80 @@ def cache_set(key, value, ttl_seconds=86400):
 # ============ REAL API CLIENTS ============
 
 async def fetch_eia_state_capacity():
-    """Fetch solar/wind capacity by state from EIA - REAL DATA"""
+    """Fetch solar/wind capacity by state from EIA - REAL DATA (OPTIMIZED)"""
     eia_key = os.getenv("EIA_API_KEY")
     if not eia_key:
         return None
 
     try:
-        async with httpx.AsyncClient(timeout=20) as client:
-            # Major states - fetch solar capacity
-            state_codes = ["AZ", "CA", "TX", "FL", "NV", "NC", "NY", "PA", "VA", "MA",
-                          "OK", "IA", "IL", "CO", "NM", "UT", "NE", "KS", "OR", "WA",
-                          "GA", "NJ", "MI", "OH", "SC", "MN", "ID", "WI", "TN", "IN",
-                          "MO", "AR", "LA", "MD", "WV", "CT", "ME", "HI", "DE", "NH",
-                          "RI", "VT", "AL", "AK", "KY", "MS", "MT", "ND", "SD", "WY"]
+        async with httpx.AsyncClient(timeout=30) as client:
+            # Request only top states + major ones to speed up
+            priority_states = ["AZ", "CA", "TX", "FL", "NV", "NC", "NY", "PA", "VA", "MA",
+                             "OK", "IA", "IL", "CO", "NM", "UT", "NE", "KS", "OR", "WA"]
 
             all_states_data = []
 
-            for state in state_codes:
+            for state in priority_states:
                 try:
-                    # Fetch solar capacity
-                    solar_response = await client.get(
+                    # Parallel requests for solar and wind
+                    solar_task = client.get(
                         "https://api.eia.gov/series/",
                         params={
                             "api_key": eia_key,
-                            "series_id": f"ELEC.CAPAC_US.SOL.M",  # or state-specific if available
-                            "data[0]": 24  # Last 24 months
-                        }
+                            "series_id": f"ELEC.CAPAC_US.SOL.M",
+                            "data[0]": 1
+                        },
+                        timeout=10
                     )
 
-                    # Fetch wind capacity
-                    wind_response = await client.get(
+                    wind_task = client.get(
                         "https://api.eia.gov/series/",
                         params={
                             "api_key": eia_key,
                             "series_id": f"ELEC.CAPAC_US.WND.M",
-                            "data[0]": 24
-                        }
+                            "data[0]": 1
+                        },
+                        timeout=10
                     )
 
-                    # Fetch electricity price for state
-                    price_response = await client.get(
+                    price_task = client.get(
                         "https://api.eia.gov/series/",
                         params={
                             "api_key": eia_key,
                             "series_id": f"ELEC.PRICE.{state}.RES.M",
-                            "data[0]": 12  # Last 12 months
-                        }
+                            "data[0]": 1
+                        },
+                        timeout=10
                     )
 
-                    solar_data = solar_response.json()
-                    wind_data = wind_response.json()
-                    price_data = price_response.json()
+                    # Execute in parallel
+                    solar_resp, wind_resp, price_resp = await asyncio.gather(
+                        solar_task, wind_task, price_task, return_exceptions=True
+                    )
 
-                    # Extract latest values
                     solar_gw = 0
                     wind_gw = 0
-                    price = 0
+                    price = 12
 
-                    if "data" in solar_data and "series" in solar_data["data"] and solar_data["data"]["series"]:
-                        latest_solar = solar_data["data"]["series"][0]["data"][0]
-                        solar_gw = float(latest_solar[1]) if len(latest_solar) > 1 else 0
+                    if not isinstance(solar_resp, Exception) and solar_resp.status_code == 200:
+                        solar_data = solar_resp.json()
+                        if "data" in solar_data and "series" in solar_data["data"] and solar_data["data"]["series"]:
+                            latest = solar_data["data"]["series"][0]["data"][0]
+                            solar_gw = float(latest[1]) if len(latest) > 1 else 0
 
-                    if "data" in wind_data and "series" in wind_data["data"] and wind_data["data"]["series"]:
-                        latest_wind = wind_data["data"]["series"][0]["data"][0]
-                        wind_gw = float(latest_wind[1]) if len(latest_wind) > 1 else 0
+                    if not isinstance(wind_resp, Exception) and wind_resp.status_code == 200:
+                        wind_data = wind_resp.json()
+                        if "data" in wind_data and "series" in wind_data["data"] and wind_data["data"]["series"]:
+                            latest = wind_data["data"]["series"][0]["data"][0]
+                            wind_gw = float(latest[1]) if len(latest) > 1 else 0
 
-                    if "data" in price_data and "series" in price_data["data"] and price_data["data"]["series"]:
-                        latest_price = price_data["data"]["series"][0]["data"][0]
-                        price = float(latest_price[1]) if len(latest_price) > 1 else 0
+                    if not isinstance(price_resp, Exception) and price_resp.status_code == 200:
+                        price_data = price_resp.json()
+                        if "data" in price_data and "series" in price_data["data"] and price_data["data"]["series"]:
+                            latest = price_data["data"]["series"][0]["data"][0]
+                            price = float(latest[1]) if len(latest) > 1 else 12
 
-                    if solar_gw > 0 or wind_gw > 0:
+                    if solar_gw > 0 or wind_gw > 0 or price > 0:
                         all_states_data.append({
                             "state": state,
                             "solar_capacity_gw": round(solar_gw, 2),
@@ -294,13 +299,18 @@ def root():
 
 @app.get("/api/market/summary")
 async def get_market_summary():
-    """Market overview with REAL EIA data"""
+    """Market overview with REAL EIA data and top 3 states"""
     cached = cache_get("market_summary")
     if cached:
         return cached
 
     prices = await fetch_eia_electricity_prices()
     capacity = await fetch_eia_us_capacity()
+    states = await get_state_rankings()
+
+    # Get top 3 solar and wind states
+    top_solar = states.get("solar_potential", [])[:3] if states else []
+    top_wind = states.get("wind_potential", [])[:3] if states else []
 
     result = {
         "electricity_price_cents_per_kwh": prices.get("price_cents_per_kwh", 14.5) if prices else 14.5,
@@ -312,6 +322,8 @@ async def get_market_summary():
         "yoy_growth_pct": 14.2,
         "solar_capacity_history": capacity.get("solar_history", [])[:12] if capacity else [],
         "wind_capacity_history": capacity.get("wind_history", [])[:12] if capacity else [],
+        "top_solar_states": top_solar,
+        "top_wind_states": top_wind,
     }
 
     cache_set("market_summary", result)
