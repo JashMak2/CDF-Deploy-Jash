@@ -397,11 +397,13 @@ function CalculatorTab({ onUpdate }) {
 
 // ============ TAB 3: AI RESEARCH ============
 function AITab({ calculatorState }) {
+  const [activeSubTab, setActiveSubTab] = useState('analyst')
   const [messages, setMessages] = useState([
-    { role: 'assistant', content: 'Hi! I\'m your renewable energy investment analyst. Ask me anything about solar, wind, project economics, or financing. I have live access to market data and your project inputs.' }
+    { role: 'assistant', content: '🔬 Welcome to AI Research! I analyze renewable energy investments with live market data. Choose an analysis type to get started.', timestamp: new Date() }
   ])
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
+  const [savedNotes, setSavedNotes] = useState([])
   const messagesEndRef = useRef(null)
 
   const scrollToBottom = () => {
@@ -412,17 +414,57 @@ function AITab({ calculatorState }) {
     scrollToBottom()
   }, [messages])
 
-  const quickQuestions = [
-    'Best states for solar investment?',
-    'How do capacity factors affect returns?',
-    'Common renewable financing structures?',
-    'How does PPA rate impact IRR?'
-  ]
+  const researchTopics = {
+    analyst: {
+      title: '📊 Investment Analyst',
+      icon: '📈',
+      description: 'Get detailed financial analysis and market insights',
+      prompts: [
+        'Analyze my current project scenario',
+        'Compare this project to market benchmarks',
+        'What are the key risks I should consider?',
+        'Best financing strategy for my size?'
+      ]
+    },
+    opportunities: {
+      title: '🎯 Market Opportunities',
+      icon: '🌍',
+      description: 'Discover high-potential investment regions',
+      prompts: [
+        'Which states have the best solar economics?',
+        'Where can I get the highest IRR?',
+        'Emerging opportunities I should watch?',
+        'Regional policy advantages?'
+      ]
+    },
+    technology: {
+      title: '⚡ Technology & Engineering',
+      icon: '🔧',
+      description: 'Technical performance & equipment advice',
+      prompts: [
+        'Solar vs Wind trade-offs for my location',
+        'How capacity factor affects returns?',
+        'Modern efficiency improvements?',
+        'Equipment degradation rates?'
+      ]
+    },
+    policy: {
+      title: '⚖️ Policy & Incentives',
+      icon: '📋',
+      description: 'Navigate federal and state incentives',
+      prompts: [
+        'Current federal solar tax credit status?',
+        'State-specific incentives available?',
+        'Net metering policies by region?',
+        'Coming policy changes to prepare for?'
+      ]
+    }
+  }
 
-  async function sendMessage(text) {
+  async function sendMessage(text, topic = null) {
     if (!text.trim()) return
 
-    const newMessages = [...messages, { role: 'user', content: text }]
+    const newMessages = [...messages, { role: 'user', content: text, timestamp: new Date() }]
     setMessages(newMessages)
     setInput('')
     setLoading(true)
@@ -434,91 +476,196 @@ function AITab({ calculatorState }) {
       )
 
       if (response.error) {
-        setMessages(prev => [...prev, { role: 'assistant', content: `Error: ${response.error}` }])
+        setMessages(prev => [...prev, { role: 'assistant', content: `❌ Error: ${response.error}`, timestamp: new Date() }])
       } else if (response.reply) {
-        setMessages(prev => [...prev, { role: 'assistant', content: response.reply }])
+        setMessages(prev => [...prev, { role: 'assistant', content: response.reply, timestamp: new Date() }])
       } else {
-        setMessages(prev => [...prev, { role: 'assistant', content: 'Error: No response from AI' }])
+        setMessages(prev => [...prev, { role: 'assistant', content: 'Error: No response from AI', timestamp: new Date() }])
       }
     } catch (e) {
       const errorMsg = e.message || 'Connection error'
-      setMessages(prev => [...prev, { role: 'assistant', content: `Error: ${errorMsg}. Check that the backend is running.` }])
+      setMessages(prev => [...prev, { role: 'assistant', content: `❌ Error: ${errorMsg}. Ensure backend is running.`, timestamp: new Date() }])
     } finally {
       setLoading(false)
     }
   }
 
+  const saveNote = () => {
+    if (!messages.length) return
+    const note = {
+      id: Date.now(),
+      topic: activeSubTab,
+      timestamp: new Date().toLocaleString(),
+      summary: messages[messages.length - 1].content.substring(0, 100) + '...'
+    }
+    setSavedNotes([note, ...savedNotes])
+  }
+
+  const clearChat = () => {
+    setMessages([{ role: 'assistant', content: '🔬 Research session cleared. What would you like to analyze?', timestamp: new Date() }])
+  }
+
   return (
     <div className="tab-content">
-      <h2>AI Research Assistant</h2>
-      <p className="subtitle-text">Ask about renewable energy investments with live market context</p>
+      <h2>🤖 AI Research Lab</h2>
+      <p className="subtitle-text">Deep market analysis powered by live data and intelligent reasoning</p>
 
-      <div className="ai-container">
-        <div className="chat-panel">
-          <div className="messages">
-            {messages.map((msg, i) => (
-              <div key={i} className={`message ${msg.role}`}>
-                <p>{msg.content}</p>
-              </div>
-            ))}
-            <div ref={messagesEndRef} />
+      <div className="research-layout">
+        {/* ========== RESEARCH MODES ========== */}
+        <div className="research-modes">
+          {Object.entries(researchTopics).map(([key, topic]) => (
+            <button
+              key={key}
+              className={`research-mode-btn ${activeSubTab === key ? 'active' : ''}`}
+              onClick={() => setActiveSubTab(key)}
+              title={topic.description}
+            >
+              <span className="mode-icon">{topic.icon}</span>
+              <span className="mode-name">{topic.title.split(' ')[1]}</span>
+            </button>
+          ))}
+        </div>
+
+        {/* ========== MAIN RESEARCH AREA ========== */}
+        <div className="research-container">
+          {/* Mode Header */}
+          <div className="research-header">
+            <div>
+              <h3 className="research-mode-title">{researchTopics[activeSubTab].title}</h3>
+              <p className="research-mode-desc">{researchTopics[activeSubTab].description}</p>
+            </div>
+            <div className="research-controls">
+              <button className="control-btn" onClick={saveNote} title="Save this research">
+                💾 Save
+              </button>
+              <button className="control-btn" onClick={clearChat} title="Clear chat">
+                🗑️ Clear
+              </button>
+            </div>
           </div>
 
-          <div className="input-area">
-            <input
-              type="text"
-              placeholder="Ask about renewable energy investments..."
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              onKeyPress={(e) => e.key === 'Enter' && sendMessage(input)}
-              disabled={loading}
-            />
-            <button onClick={() => sendMessage(input)} disabled={loading}>
-              {loading ? 'Sending...' : 'Send'}
-            </button>
+          {/* Chat Area */}
+          <div className="research-chat">
+            <div className="messages-area">
+              {messages.map((msg, i) => (
+                <div key={i} className={`message-card ${msg.role}`}>
+                  <div className="message-avatar">
+                    {msg.role === 'user' ? '👤' : '🤖'}
+                  </div>
+                  <div className="message-content-box">
+                    <p className="message-text">{msg.content}</p>
+                    {msg.timestamp && (
+                      <span className="message-time">
+                        {msg.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                      </span>
+                    )}
+                  </div>
+                </div>
+              ))}
+              <div ref={messagesEndRef} />
+            </div>
+
+            {/* Quick Prompts */}
+            <div className="quick-prompts">
+              {researchTopics[activeSubTab].prompts.map((prompt, i) => (
+                <button
+                  key={i}
+                  className="prompt-btn"
+                  onClick={() => sendMessage(prompt)}
+                  disabled={loading}
+                >
+                  ✨ {prompt}
+                </button>
+              ))}
+            </div>
+
+            {/* Input Area */}
+            <div className="research-input">
+              <input
+                type="text"
+                placeholder={`Ask about ${researchTopics[activeSubTab].title}...`}
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                onKeyPress={(e) => e.key === 'Enter' && sendMessage(input)}
+                disabled={loading}
+              />
+              <button
+                onClick={() => sendMessage(input)}
+                disabled={loading}
+                className="send-btn"
+              >
+                {loading ? '⏳...' : '→'}
+              </button>
+            </div>
           </div>
         </div>
 
-        <div className="ai-sidebar">
-          <h3 className="sidebar-title">Quick Start</h3>
-          {quickQuestions.map((q, i) => (
-            <button
-              key={i}
-              className="quick-btn"
-              onClick={() => sendMessage(q)}
-              disabled={loading}
-            >
-              {q}
-            </button>
-          ))}
-
+        {/* ========== RESEARCH SIDEBAR ========== */}
+        <div className="research-sidebar">
+          {/* Context */}
           {calculatorState && Object.keys(calculatorState).length > 0 && (
-            <>
-              <h3 className="sidebar-title">Project Context</h3>
-              <div className="context-box">
-                <div className="context-item">
-                  <span className="context-label">Type:</span>
-                  <span className="context-value">{calculatorState.type}</span>
-                </div>
-                <div className="context-item">
-                  <span className="context-label">Location:</span>
-                  <span className="context-value">{calculatorState.state}</span>
-                </div>
-                <div className="context-item">
-                  <span className="context-label">Size:</span>
-                  <span className="context-value">{(calculatorState.system_size_kw / 1000)?.toFixed(1)} MW</span>
-                </div>
-                <div className="context-item">
-                  <span className="context-label">PPA:</span>
-                  <span className="context-value">{calculatorState.ppa_rate_cents_kwh}¢/kWh</span>
-                </div>
-                <div className="context-item">
-                  <span className="context-label">IRR:</span>
-                  <span className="context-value">{calculatorState.irr_pct?.toFixed(1)}%</span>
-                </div>
+            <div className="sidebar-section">
+              <h4 className="sidebar-heading">📌 Your Project</h4>
+              <div className="project-context">
+                {calculatorState.type && (
+                  <div className="context-row">
+                    <span className="context-key">Technology:</span>
+                    <span className="context-val">{calculatorState.type.toUpperCase()}</span>
+                  </div>
+                )}
+                {calculatorState.state && (
+                  <div className="context-row">
+                    <span className="context-key">Location:</span>
+                    <span className="context-val">{calculatorState.state}</span>
+                  </div>
+                )}
+                {calculatorState.system_size_kw && (
+                  <div className="context-row">
+                    <span className="context-key">Size:</span>
+                    <span className="context-val">{(calculatorState.system_size_kw / 1000).toFixed(1)} MW</span>
+                  </div>
+                )}
+                {calculatorState.ppa_rate_cents_kwh && (
+                  <div className="context-row">
+                    <span className="context-key">PPA Rate:</span>
+                    <span className="context-val">{calculatorState.ppa_rate_cents_kwh}¢/kWh</span>
+                  </div>
+                )}
+                {calculatorState.irr_pct && (
+                  <div className="context-row highlighted">
+                    <span className="context-key">Expected IRR:</span>
+                    <span className="context-val">{calculatorState.irr_pct.toFixed(1)}%</span>
+                  </div>
+                )}
               </div>
-            </>
+            </div>
           )}
+
+          {/* Saved Research */}
+          {savedNotes.length > 0 && (
+            <div className="sidebar-section">
+              <h4 className="sidebar-heading">📚 Saved Research ({savedNotes.length})</h4>
+              <div className="saved-notes">
+                {savedNotes.slice(0, 5).map(note => (
+                  <div key={note.id} className="saved-note-item">
+                    <p className="note-summary">{note.summary}</p>
+                    <p className="note-meta">{note.timestamp}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Tips */}
+          <div className="sidebar-section">
+            <h4 className="sidebar-heading">💡 Tips</h4>
+            <ul className="tips-list">
+              <li>Ask about specific market conditions</li>
+              <li>Reference your project scenario</li>
+              <li>Compare regions and technologies</li>
+              <li>Explore policy implications</li>
+            </ul>
+          </div>
         </div>
       </div>
     </div>
