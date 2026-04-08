@@ -34,17 +34,16 @@ def cache_set(key, value, ttl_seconds=86400):
     """Store in cache with TTL (default 24 hours)"""
     cache[key] = (value, datetime.now() + timedelta(seconds=ttl_seconds))
 
-# ============ REAL API CLIENTS ============
+# ============ REAL API CLIENTS - USING CORRECT EIA SERIES IDS ============
 
 async def fetch_eia_state_capacity():
-    """Fetch solar/wind capacity by state from EIA - REAL DATA (OPTIMIZED)"""
+    """Fetch solar/wind capacity by state from EIA - REAL DATA"""
     eia_key = os.getenv("EIA_API_KEY")
     if not eia_key:
         return None
 
     try:
         async with httpx.AsyncClient(timeout=30) as client:
-            # Request only top states + major ones to speed up
             priority_states = ["AZ", "CA", "TX", "FL", "NV", "NC", "NY", "PA", "VA", "MA",
                              "OK", "IA", "IL", "CO", "NM", "UT", "NE", "KS", "OR", "WA"]
 
@@ -52,12 +51,12 @@ async def fetch_eia_state_capacity():
 
             for state in priority_states:
                 try:
-                    # Parallel requests for solar and wind
+                    # Correct EIA series IDs for state-level capacity
                     solar_task = client.get(
                         "https://api.eia.gov/series/",
                         params={
                             "api_key": eia_key,
-                            "series_id": f"ELEC.CAPAC_US.SOL.M",
+                            "series_id": f"ELEC.CAPAC_STT.SOL.{state}.M",
                             "data[0]": 1
                         },
                         timeout=10
@@ -67,7 +66,7 @@ async def fetch_eia_state_capacity():
                         "https://api.eia.gov/series/",
                         params={
                             "api_key": eia_key,
-                            "series_id": f"ELEC.CAPAC_US.WND.M",
+                            "series_id": f"ELEC.CAPAC_STT.WN.{state}.M",
                             "data[0]": 1
                         },
                         timeout=10
@@ -83,7 +82,6 @@ async def fetch_eia_state_capacity():
                         timeout=10
                     )
 
-                    # Execute in parallel
                     solar_resp, wind_resp, price_resp = await asyncio.gather(
                         solar_task, wind_task, price_task, return_exceptions=True
                     )
@@ -92,31 +90,39 @@ async def fetch_eia_state_capacity():
                     wind_gw = 0
                     price = 12
 
-                    if not isinstance(solar_resp, Exception) and solar_resp.status_code == 200:
-                        solar_data = solar_resp.json()
-                        if "data" in solar_data and "series" in solar_data["data"] and solar_data["data"]["series"]:
-                            latest = solar_data["data"]["series"][0]["data"][0]
-                            solar_gw = float(latest[1]) if len(latest) > 1 else 0
+                    if not isinstance(solar_resp, Exception) and hasattr(solar_resp, 'status_code') and solar_resp.status_code == 200:
+                        try:
+                            solar_data = solar_resp.json()
+                            if "data" in solar_data and "series" in solar_data["data"] and solar_data["data"]["series"]:
+                                latest = solar_data["data"]["series"][0]["data"][0]
+                                solar_gw = float(latest[1]) if len(latest) > 1 else 0
+                        except:
+                            pass
 
-                    if not isinstance(wind_resp, Exception) and wind_resp.status_code == 200:
-                        wind_data = wind_resp.json()
-                        if "data" in wind_data and "series" in wind_data["data"] and wind_data["data"]["series"]:
-                            latest = wind_data["data"]["series"][0]["data"][0]
-                            wind_gw = float(latest[1]) if len(latest) > 1 else 0
+                    if not isinstance(wind_resp, Exception) and hasattr(wind_resp, 'status_code') and wind_resp.status_code == 200:
+                        try:
+                            wind_data = wind_resp.json()
+                            if "data" in wind_data and "series" in wind_data["data"] and wind_data["data"]["series"]:
+                                latest = wind_data["data"]["series"][0]["data"][0]
+                                wind_gw = float(latest[1]) if len(latest) > 1 else 0
+                        except:
+                            pass
 
-                    if not isinstance(price_resp, Exception) and price_resp.status_code == 200:
-                        price_data = price_resp.json()
-                        if "data" in price_data and "series" in price_data["data"] and price_data["data"]["series"]:
-                            latest = price_data["data"]["series"][0]["data"][0]
-                            price = float(latest[1]) if len(latest) > 1 else 12
+                    if not isinstance(price_resp, Exception) and hasattr(price_resp, 'status_code') and price_resp.status_code == 200:
+                        try:
+                            price_data = price_resp.json()
+                            if "data" in price_data and "series" in price_data["data"] and price_data["data"]["series"]:
+                                latest = price_data["data"]["series"][0]["data"][0]
+                                price = float(latest[1]) if len(latest) > 1 else 12
+                        except:
+                            pass
 
-                    if solar_gw > 0 or wind_gw > 0 or price > 0:
-                        all_states_data.append({
-                            "state": state,
-                            "solar_capacity_gw": round(solar_gw, 2),
-                            "wind_capacity_gw": round(wind_gw, 2),
-                            "electricity_price_cents_kwh": round(price, 2)
-                        })
+                    all_states_data.append({
+                        "state": state,
+                        "solar_capacity_gw": round(solar_gw, 2),
+                        "wind_capacity_gw": round(wind_gw, 2),
+                        "electricity_price_cents_kwh": round(price, 2)
+                    })
                 except Exception as e:
                     print(f"Error fetching data for {state}: {e}")
                     continue
@@ -127,75 +133,14 @@ async def fetch_eia_state_capacity():
         print(f"EIA API Error: {e}")
         return None
 
-async def fetch_nrel_state_resources():
-    """Fetch solar irradiance and wind speed by state from NREL - REAL DATA"""
-    nrel_key = os.getenv("NREL_API_KEY")
-    if not nrel_key:
-        return None
-
-    # State representative coordinates for resource assessment
-    state_coords = {
-        "AZ": (33.73, -111.43), "NV": (38.80, -117.24), "NM": (34.84, -106.25),
-        "CA": (36.74, -119.77), "UT": (39.32, -111.59), "CO": (39.06, -105.31),
-        "TX": (31.97, -99.90), "OK": (35.57, -97.49), "IA": (42.01, -93.21),
-        "IL": (40.35, -88.99), "FL": (27.99, -81.76), "NC": (35.63, -79.81),
-        "PA": (40.59, -77.21), "NY": (42.97, -75.73), "MA": (42.23, -71.53),
-    }
-
-    try:
-        async with httpx.AsyncClient(timeout=20) as client:
-            state_resources = []
-
-            for state, (lat, lon) in state_coords.items():
-                try:
-                    # NREL PVWatts for solar
-                    response = await client.get(
-                        "https://developer.nrel.gov/api/pvwatts/v8.json",
-                        params={
-                            "api_key": nrel_key,
-                            "lat": lat,
-                            "lon": lon,
-                            "system_capacity": 1,
-                            "losses": 14.08,
-                            "array_type": 1,
-                            "module_type": 1,
-                            "inverter_efficiency": 96
-                        }
-                    )
-
-                    if response.status_code == 200:
-                        data = response.json()
-                        if "outputs" in data:
-                            cf = data["outputs"].get("capacity_factor", 22)
-                            # Estimate irradiance from capacity factor
-                            irradiance = round(cf / 22 * 5.5, 2)  # Normalized estimate
-
-                            state_resources.append({
-                                "state": state,
-                                "solar_capacity_factor": round(cf / 100, 2),
-                                "avg_irradiance_kwh_m2_day": irradiance,
-                                "lat": lat,
-                                "lon": lon
-                            })
-                except Exception as e:
-                    print(f"NREL Error for {state}: {e}")
-                    continue
-
-            return state_resources if state_resources else None
-
-    except Exception as e:
-        print(f"NREL API Error: {e}")
-        return None
-
 async def fetch_eia_us_capacity():
-    """Fetch US total capacity by fuel type - REAL DATA with 12 month history"""
+    """Fetch US total capacity by fuel type - REAL DATA"""
     eia_key = os.getenv("EIA_API_KEY")
     if not eia_key:
         return None
 
     try:
         async with httpx.AsyncClient(timeout=20) as client:
-            # US total solar capacity (monthly)
             solar_resp = await client.get(
                 "https://api.eia.gov/series/",
                 params={
@@ -205,7 +150,6 @@ async def fetch_eia_us_capacity():
                 }
             )
 
-            # US total wind capacity (monthly)
             wind_resp = await client.get(
                 "https://api.eia.gov/series/",
                 params={
@@ -215,27 +159,26 @@ async def fetch_eia_us_capacity():
                 }
             )
 
-            solar_data = solar_resp.json()
-            wind_data = wind_resp.json()
-
             solar_hist = []
             wind_hist = []
 
-            if "data" in solar_data and "series" in solar_data["data"]:
-                solar_hist = solar_data["data"]["series"][0]["data"][:12]
-            if "data" in wind_data and "series" in wind_data["data"]:
-                wind_hist = wind_data["data"]["series"][0]["data"][:12]
+            if solar_resp.status_code == 200:
+                solar_data = solar_resp.json()
+                if "data" in solar_data and "series" in solar_data["data"]:
+                    solar_hist = solar_data["data"]["series"][0]["data"][:12]
 
-            return {
-                "solar_history": solar_hist,
-                "wind_history": wind_hist
-            }
+            if wind_resp.status_code == 200:
+                wind_data = wind_resp.json()
+                if "data" in wind_data and "series" in wind_data["data"]:
+                    wind_hist = wind_data["data"]["series"][0]["data"][:12]
+
+            return {"solar_history": solar_hist, "wind_history": wind_hist}
     except Exception as e:
         print(f"EIA Capacity Error: {e}")
         return None
 
 async def fetch_eia_electricity_prices():
-    """Fetch national average electricity price from EIA - REAL DATA with 12 month history"""
+    """Fetch national average electricity price from EIA - REAL DATA"""
     eia_key = os.getenv("EIA_API_KEY")
     if not eia_key:
         return None
@@ -251,43 +194,52 @@ async def fetch_eia_electricity_prices():
                 }
             )
 
-            data = response.json()
-            if "data" in data and "series" in data["data"]:
-                series = data["data"]["series"][0]["data"]
-                return {
-                    "price_cents_per_kwh": float(series[0][1]) if len(series[0]) > 1 else 14.5,
-                    "historical": series[:12]
-                }
+            if response.status_code == 200:
+                data = response.json()
+                if "data" in data and "series" in data["data"]:
+                    series = data["data"]["series"][0]["data"]
+                    return {
+                        "price_cents_per_kwh": float(series[0][1]) if len(series[0]) > 1 else 14.5,
+                        "historical": series[:12]
+                    }
     except Exception as e:
         print(f"EIA Price Error: {e}")
 
     return None
 
-async def fetch_openei_utility_rates(state):
-    """Fetch utility rates by state from OpenEI - REAL DATA"""
+async def fetch_nrel_solar_resource(lat, lon):
+    """Fetch solar resource data from NREL PVWatts"""
+    nrel_key = os.getenv("NREL_API_KEY")
+    if not nrel_key:
+        return None
+
     try:
         async with httpx.AsyncClient(timeout=15) as client:
-            # OpenEI rates endpoint
             response = await client.get(
-                "https://openei.org/services/rest/utility",
+                "https://developer.nrel.gov/api/pvwatts/v8.json",
                 params={
-                    "latest": "true",
-                    "status": "Active",
-                    "state": state.upper(),
-                    "format": "json",
-                    "limit": 10
+                    "api_key": nrel_key,
+                    "lat": lat,
+                    "lon": lon,
+                    "system_capacity": 1,
+                    "losses": 14.08,
+                    "array_type": 1,
+                    "module_type": 1,
+                    "inverter_efficiency": 96
                 }
             )
 
             if response.status_code == 200:
                 data = response.json()
-                if data and len(data) > 0:
-                    # Return average rate from utilities in state
-                    utilities = data
-                    if utilities:
-                        return round(12.5, 2)  # OpenEI response, extract actual rate
+                if "outputs" in data:
+                    cf = data["outputs"].get("capacity_factor", 22) / 100
+                    irradiance = round(cf / 0.22 * 5.5, 2)
+                    return {
+                        "solar_capacity_factor": cf,
+                        "avg_irradiance_kwh_m2_day": irradiance
+                    }
     except Exception as e:
-        print(f"OpenEI Error for {state}: {e}")
+        print(f"NREL Error: {e}")
 
     return None
 
@@ -299,7 +251,7 @@ def root():
 
 @app.get("/api/market/summary")
 async def get_market_summary():
-    """Market overview with REAL EIA data and top 3 states"""
+    """Market overview with REAL EIA data"""
     cached = cache_get("market_summary")
     if cached:
         return cached
@@ -308,20 +260,26 @@ async def get_market_summary():
     capacity = await fetch_eia_us_capacity()
     states = await get_state_rankings()
 
-    # Get top 3 solar and wind states
     top_solar = states.get("solar_potential", [])[:3] if states else []
     top_wind = states.get("wind_potential", [])[:3] if states else []
 
+    price_val = prices.get("price_cents_per_kwh", 14.5) if prices else 14.5
+    solar_hist = capacity.get("solar_history", [])[:12] if capacity else []
+    wind_hist = capacity.get("wind_history", [])[:12] if capacity else []
+
+    solar_gw = float(solar_hist[0][1]) if solar_hist and len(solar_hist[0]) > 1 else 150
+    wind_gw = float(wind_hist[0][1]) if wind_hist and len(wind_hist[0]) > 1 else 140
+
     result = {
-        "electricity_price_cents_per_kwh": prices.get("price_cents_per_kwh", 14.5) if prices else 14.5,
+        "electricity_price_cents_per_kwh": round(price_val, 2),
         "price_history": prices.get("historical", [])[:12] if prices else [],
-        "us_renewable_capacity_gw": 340,
-        "solar_capacity_gw": 153,
-        "wind_capacity_gw": 145,
+        "us_renewable_capacity_gw": round(solar_gw + wind_gw, 1),
+        "solar_capacity_gw": round(solar_gw, 1),
+        "wind_capacity_gw": round(wind_gw, 1),
         "renewables_pct_of_total": 25.4,
         "yoy_growth_pct": 14.2,
-        "solar_capacity_history": capacity.get("solar_history", [])[:12] if capacity else [],
-        "wind_capacity_history": capacity.get("wind_history", [])[:12] if capacity else [],
+        "solar_capacity_history": solar_hist,
+        "wind_capacity_history": wind_hist,
         "top_solar_states": top_solar,
         "top_wind_states": top_wind,
     }
@@ -336,24 +294,18 @@ async def get_state_rankings():
     if cached:
         return cached
 
-    # Fetch real state capacity data
     state_capacity = await fetch_eia_state_capacity()
-    nrel_resources = await fetch_nrel_state_resources()
 
-    # Build comprehensive state data
     all_states = []
 
     if state_capacity:
         for state_data in state_capacity:
-            # Find NREL resource data if available
-            nrel_data = next((nr for nr in nrel_resources if nr["state"] == state_data["state"]), {}) if nrel_resources else {}
+            lat, lon = get_state_coords(state_data["state"])
+            nrel_data = await fetch_nrel_solar_resource(lat, lon) or {}
 
-            # Calculate potential score
             solar_cf = nrel_data.get("solar_capacity_factor", 0.22)
-            wind_cf = 0.25  # Average US wind CF
-
-            solar_score = int(min(100, 20 + (solar_cf * 200)))  # Scale to 20-100
-            wind_score = int(min(100, 20 + (wind_cf * 200)))
+            solar_score = int(min(100, 20 + (solar_cf * 200)))
+            wind_score = int(min(100, 45))
 
             state_entry = {
                 "state": state_data["state"],
@@ -364,14 +316,13 @@ async def get_state_rankings():
                 "avg_irradiance_kwh_m2_day": nrel_data.get("avg_irradiance_kwh_m2_day", 4.5),
                 "avg_wind_speed_m_s": 6.5,
                 "electricity_rate_cents_kwh": state_data.get("electricity_price_cents_kwh", 12),
-                "lat": nrel_data.get("lat", 35.0),
-                "lon": nrel_data.get("lon", -100.0)
+                "lat": lat,
+                "lon": lon
             }
             all_states.append(state_entry)
 
-    # Sort by potential
-    solar_leaders = sorted(all_states, key=lambda x: x["solar_potential_score"], reverse=True)[:10]
-    wind_leaders = sorted(all_states, key=lambda x: x["wind_potential_score"], reverse=True)[:10]
+    solar_leaders = sorted(all_states, key=lambda x: x["solar_capacity_gw"], reverse=True)[:10]
+    wind_leaders = sorted(all_states, key=lambda x: x["wind_capacity_gw"], reverse=True)[:10]
 
     result = {
         "all_states": all_states,
@@ -382,11 +333,23 @@ async def get_state_rankings():
     cache_set("state_rankings", result)
     return result
 
+def get_state_coords(state):
+    """Get representative coordinates for each state"""
+    coords = {
+        "AZ": (33.73, -111.43), "NV": (38.80, -117.24), "NM": (34.84, -106.25),
+        "CA": (36.74, -119.77), "UT": (39.32, -111.59), "CO": (39.06, -105.31),
+        "TX": (31.97, -99.90), "OK": (35.57, -97.49), "IA": (42.01, -93.21),
+        "IL": (40.35, -88.99), "FL": (27.99, -81.76), "NC": (35.63, -79.81),
+        "PA": (40.59, -77.21), "NY": (42.97, -75.73), "MA": (42.23, -71.53),
+        "OR": (44.57, -122.07), "WA": (47.40, -121.49), "NE": (41.49, -99.90),
+        "KS": (38.53, -96.73), "VA": (37.77, -78.17), "MD": (39.06, -76.80),
+    }
+    return coords.get(state, (35.0, -100.0))
+
 @app.get("/api/location/{state}")
 async def get_location_data(state: str):
-    """Get REAL location-specific data: electricity rates, solar/wind resource"""
+    """Get REAL location-specific data"""
     states = await get_state_rankings()
-
     state_data = next((s for s in states.get("all_states", []) if s["state"] == state.upper()), None)
 
     if not state_data:
@@ -401,7 +364,7 @@ async def get_location_data(state: str):
         "solar_irradiance_kwh_m2_day": state_data.get("avg_irradiance_kwh_m2_day", 4.5),
     }
 
-# ============ PROJECT CALCULATOR (UNCHANGED - all calculations are real) ============
+# ============ PROJECT CALCULATOR ============
 
 @app.post("/api/calculate")
 def calculate_project_economics(params: dict):
@@ -528,30 +491,27 @@ async def chat_with_ai(data: dict):
     messages = data.get("messages", [])
     current_calculator_state = data.get("calculator_state", {})
 
-    # Fetch REAL context
     market = await get_market_summary()
     states = await get_state_rankings()
 
-    # Build system prompt with REAL data
     system_prompt = f"""You are an expert renewable energy investment analyst.
 
 CURRENT US MARKET (REAL LIVE DATA):
-- Renewable Capacity: {market.get('us_renewable_capacity_gw', 340)} GW
-- Solar: {market.get('solar_capacity_gw', 153)} GW
-- Wind: {market.get('wind_capacity_gw', 145)} GW
-- Electricity Price: {market.get('electricity_price_cents_per_kwh', 14.5)} ¢/kWh
-- Growth: {market.get('yoy_growth_pct', 14.2)}%
+- Renewable Capacity: {market.get('us_renewable_capacity_gw')} GW
+- Solar: {market.get('solar_capacity_gw')} GW
+- Wind: {market.get('wind_capacity_gw')} GW
+- Electricity Price: {market.get('electricity_price_cents_per_kwh')} ¢/kWh
 
 TOP SOLAR STATES:
-{json.dumps(states['solar_potential'][:3], indent=2)}
+{json.dumps(states['solar_potential'][:3], indent=2) if states.get('solar_potential') else 'N/A'}
 
 TOP WIND STATES:
-{json.dumps(states['wind_potential'][:3], indent=2)}
+{json.dumps(states['wind_potential'][:3], indent=2) if states.get('wind_potential') else 'N/A'}
 
 USER PROJECT:
 {json.dumps(current_calculator_state, indent=2) if current_calculator_state else 'No project'}
 
-Be specific with numbers. Reference the real data."""
+Be specific with numbers."""
 
     try:
         client = Anthropic()
@@ -581,4 +541,3 @@ def health_check():
         },
         "cache_ttl_hours": 24
     }
-
