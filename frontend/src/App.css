@@ -49,13 +49,13 @@ body {
 }
 
 .windmill-bg {
-  position: absolute;
+  position: fixed;
   top: 50%;
   left: 50%;
   transform: translate(-50%, -50%);
   width: 800px;
   height: 800px;
-  opacity: 0.35;
+  opacity: 0.65;
   z-index: 0;
   pointer-events: none;
   filter: drop-shadow(0 0 80px rgba(99, 102, 241, 0.3));
@@ -1494,6 +1494,172 @@ select:focus {
 
 ::-webkit-scrollbar-thumb:hover {
   background: var(--primary);
+}
+
+/* ============ STATE SEARCH ============ */
+.state-search-wrapper {
+  position: relative;
+}
+
+.state-search-input {
+  width: 100%;
+  padding: 0.7rem 1rem;
+  background: rgba(51, 65, 85, 0.5);
+  border: 1.5px solid rgba(59, 130, 246, 0.25);
+  border-radius: 10px;
+  color: var(--text);
+  font-size: 0.95rem;
+  transition: all 0.2s ease;
+}
+
+.state-search-input::placeholder {
+  color: var(--text-muted);
+}
+
+.state-search-input:focus {
+  outline: none;
+  border-color: var(--primary);
+  background: rgba(51, 65, 85, 0.7);
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.15);
+}
+
+.state-dropdown {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  background: #1e293b;
+  border: 1.5px solid rgba(59, 130, 246, 0.3);
+  border-radius: 10px;
+  max-height: 220px;
+  overflow-y: auto;
+  z-index: 100;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+}
+
+.state-option {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  width: 100%;
+  padding: 0.6rem 1rem;
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  font-size: 0.9rem;
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.15s ease;
+}
+
+.state-option:hover {
+  background: rgba(59, 130, 246, 0.15);
+  color: var(--text);
+}
+
+.state-option.active {
+  color: var(--primary);
+  background: rgba(59, 130, 246, 0.1);
+}
+
+.state-option-abbr {
+  font-weight: 700;
+  font-size: 0.8rem;
+  color: var(--primary);
+  min-width: 28px;
+}
+
+.state-option.active .state-option-abbr {
+  color: var(--secondary);
+}
+
+.state-option-name {
+  font-size: 0.88rem;
+}
+
+.state-selected-label {
+  margin-top: 0.5rem;
+  font-size: 0.82rem;
+  color: var(--text-muted);
+}
+
+.state-selected-label strong {
+  color: var(--primary);
+}
+
+.geo-badge {
+  display: inline-block;
+  margin-left: 0.5rem;
+  font-size: 0.75rem;
+  color: #10b981;
+  background: rgba(16, 185, 129, 0.12);
+  border: 1px solid rgba(16, 185, 129, 0.3);
+  border-radius: 4px;
+  padding: 0 6px;
+}
+
+/* ============ CHART WRAPPER ============ */
+.chart-wrapper {
+  background: rgba(21, 27, 47, 0.4);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(59, 130, 246, 0.2);
+  border-radius: 20px;
+  padding: 1.5rem 2rem 2rem;
+  margin-bottom: 2rem;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+}
+
+.chart-wrapper h3 {
+  margin-top: 0;
+  margin-bottom: 1.2rem;
+}
+
+/* ============ SCENARIO BAR ============ */
+.scenario-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 1.5rem;
+  flex-wrap: wrap;
+}
+
+.scenario-label {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+}
+
+.scenario-btn {
+  padding: 0.5rem 1.25rem;
+  background: rgba(31, 40, 68, 0.4);
+  border: 1.5px solid rgba(59, 130, 246, 0.2);
+  border-radius: 20px;
+  color: var(--text-muted);
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s ease;
+}
+
+.scenario-btn:hover {
+  border-color: var(--primary);
+  color: var(--primary);
+  background: rgba(59, 130, 246, 0.1);
+}
+
+.scenario-btn.active {
+  background: linear-gradient(135deg, var(--primary), var(--secondary));
+  border-color: var(--secondary);
+  color: white;
+  box-shadow: 0 4px 16px rgba(59, 130, 246, 0.3);
+}
+
+/* ============ MARKET SECTION ============ */
+.market-section {
+  margin-top: 1rem;
 }
 
 /* ============ RESPONSIVE ============ */
