@@ -1,7 +1,6 @@
 # CDF AI Engineering Hackathon - U.S. Renewable Energy Investment Dashboard
 
-**Live URL**: *(to be added after deployment)*
-
+**Live URL**: https://cdf-deploy-jash.vercel.app
 **Submission Deadline**: April 12, 2026 at 1:00 PM EST
 
 ---
