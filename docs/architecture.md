@@ -5,324 +5,274 @@
 ### High-Level Data Flow
 
 ```
-Public APIs (EIA, NREL, OpenEI)
+Public APIs (EIA v2, NREL PVWatts)
     ↓
-Backend FastAPI (Caching Layer)
-    - Normalize data
-    - Cache responses (60-300s TTL)
-    - Serve endpoints for frontend
+Backend FastAPI (main.py)
+    - 3 parallel async EIA calls (solar capacity, wind capacity, electricity prices)
+    - 24-hour in-memory cache (avoids repeated API hits)
+    - Data normalization + investment score calculation
     ↓
-Frontend React Application
-    ├─ Tab 1: Market Overview ← Live prices, capacity, trends
-    ├─ Tab 2: Project Calculator ← User inputs, live rates by location
-    ├─ Tab 3: AI Research ← Market context + calculator state
-    └─ Tab 4: Geographic Map ← Solar resource, electricity prices by state
-    ↓
+Frontend React App (App.jsx — single file, all components)
+    ├─ Tab 1: MarketTab      ← EIA electricity prices + state capacity leaders
+    ├─ Tab 2: CalculatorTab  ← 100% client-side math, no server roundtrip
+    ├─ Tab 3: AITab          ← Groq (Llama 3.3 70B) + live EIA market context
+    └─ Tab 4: GeographicTab  ← D3 choropleth (us-atlas TopoJSON) + EIA state data
+
 Cross-Tab Data Flow
-    - Tab 4 (state click) → Tab 2 (pre-fill location/rates)
-    - Tab 2 (scenario) → Tab 1 (compare to market avg)
-    - Tab 2 + Tab 4 state → Tab 3 (AI context)
+    - Tab 4 (state click) → Tab 2 (pre-fills location + EIA electricity rate)
+    - Tab 2 (project params + IRR) → Tab 3 (injected into AI system prompt)
 ```
 
 ---
 
-## Backend Architecture (FastAPI)
+## Backend Architecture (FastAPI — `backend/main.py`)
 
 ### Project Structure
 
 ```
 backend/
-├── main.py                  # FastAPI app + routes
-├── requirements.txt         # Dependencies
-└── .env                     # API keys (NOT committed)
+├── main.py          # Single-file FastAPI app: all routes + helpers
+├── requirements.txt
+└── .env             # API keys (NOT committed)
 ```
 
-### Core Endpoints
-
-#### Market Overview
+### Endpoints
 
 ```
-GET /api/market/
+GET  /                         # Health check — confirms API is running
+
+GET  /api/market/summary       # Market overview data
   Response: {
-    "electricity_price": 0.145,           # $/kWh national average
-    "price_trend": [...]                  # Last 12 months
-    "capacity_by_fuel": {
-      "solar": 153000,                    # MW
-      "wind": 145000,
-      "hydro": 102000,
-      ...
-    },
-    "state_rankings": [
-      { "state": "TX", "solar_mw": 45000, "wind_mw": 68000 },
-      ...
-    ]
+    electricity_price_cents_per_kwh: 14.7,
+    price_history: [["2025-01", 14.5], ...],   # 12 months newest-first
+    us_renewable_capacity_gw: 295.0,
+    solar_capacity_gw: 150.0,
+    wind_capacity_gw: 145.0,
+    renewables_pct_of_total: 25.4,             # Static EIA published figure
+    yoy_growth_pct: 14.2,                      # Static EIA published figure
+    top_solar_states: [...],                   # Top 3 by solar capacity
+    top_wind_states: [...]                     # Top 3 by wind capacity
   }
-```
 
-#### Location-Specific Data
-
-```
-GET /api/location/{state}/{zip}
+GET  /api/market/states        # All states with capacity + investment scores
   Response: {
-    "electricity_rate": 0.128,            # $/kWh for this location
-    "solar_resource": 5.2,                # kWh/m2/day
-    "wind_resource": 6.8,                 # m/s average wind speed
-    "updated_at": "2026-04-07T18:00:00Z"
+    all_states: [{
+      state: "TX",
+      solar_capacity_gw: 25.4,
+      wind_capacity_gw: 40.1,
+      solar_potential_score: 72,      # 60% capacity + 40% electricity rate
+      wind_potential_score: 68,
+      electricity_rate_cents_kwh: 11.2,
+      lat: 31.97, lon: -99.90
+    }, ...],
+    solar_potential: [...],           # Top 10 by solar_capacity_gw
+    wind_potential: [...]             # Top 10 by wind_capacity_gw
   }
-```
 
-#### Financial Calculations
+GET  /api/location/{state}     # Single-state data (used for calculator pre-fill)
+  Response: {
+    state: "AZ",
+    electricity_rate_cents_kwh: 13.1,
+    solar_capacity_factor: 0.27,
+    solar_irradiance_kwh_m2_day: 5.5
+  }
 
-```
-POST /api/calculate
+POST /api/calculate            # Server-side financial calc (mirrors client logic)
+  Request: { type, system_size_kw, capacity_factor, cost_per_kw, ... }
+  Response: { irr_pct, npv_usd, lcoe_cents_per_kwh, payback_years, ... }
+
+GET  /api/scenarios            # Four reference project presets
+  Response: { solar_100mw, solar_10mw, wind_100mw, wind_50mw }
+
+GET  /api/research/context     # Full market + state snapshot for AI context
+  Response: { market, states, reference_scenarios }
+
+POST /api/chat                 # AI research assistant (Groq — Llama 3.3 70B)
   Request: {
-    "type": "solar",                      # or "wind"
-    "size_kw": 50,
-    "location_state": "CA",
-    "location_zip": "94301",
-    "capacity_factor": 0.25,
-    "cost_per_watt": 2.50,
-    "om_cost_percent": 0.015,
-    "electricity_rate": 0.15,
-    "rate_escalation": 0.025,
-    "debt_percent": 0.6,
-    "interest_rate": 0.05,
-    "term_years": 25,
-    "itc_percent": 0.30,
-    "ptc": 0
+    messages: [{ role, content }, ...],   # Full conversation history
+    calculator_state: { ... }             # User's current project from Tab 2
   }
-  Response: {
-    "total_cost": 125000,                 # $
-    "annual_production": 131250,          # kWh
-    "annual_revenue": 19687,              # $ (year 1)
-    "irr": 0.088,                         # 8.8%
-    "npv": 145000,                        # $ (PV of cash flows)
-    "lcoe": 0.0673,                       # $/kWh levelized cost
-    "payback_years": 8.2,
-    "cashflow_10yr": [...]                # Array of annual cash flows
-  }
-```
+  Response: { reply: "..." }
 
-#### AI Research Context
-
-```
-GET /api/research/context
-  Response: {
-    "market_snapshot": { ... },           # Current market data
-    "calculator_state": { ... },          # User's current scenario
-    "timestamp": "2026-04-07T18:00:00Z"
-  }
-
-POST /api/chat
-  Request: {
-    "message": "What's the best state for solar?",
-    "context": { ... }                    # Market + calculator data
-  }
-  Response: {
-    "response": "Based on current market data...",
-    "sources": ["EIA", "NREL"]
-  }
+GET  /api/health               # API + key status check
 ```
 
 ### Caching Strategy
 
-- Market data: 300s TTL (changes infrequently)
-- Location data: 3600s TTL (changes very infrequently)
-- Calculations: No cache (user-driven, instant)
-- API calls: Deduplicate within TTL window
+All external API responses are stored in a Python dict with expiry timestamps:
+
+- **TTL**: 24 hours (`86400s`) for all EIA data
+- **Keys**: `"market_summary"`, `"state_rankings"`
+- **Rationale**: EIA capacity data is annual; electricity prices change monthly. 24h avoids rate-limit issues while keeping data fresh for judges reviewing the live site.
+
+### EIA Data Fetching
+
+Three parallel async calls via `asyncio.gather`:
+1. `EIA v2 /electricity/state-electricity-profiles/capability` — solar capacity by state
+2. Same endpoint — wind capacity by state
+3. `EIA v2 /electricity/retail-sales` — residential electricity prices by state
+
+Investment scores are computed server-side: `solar_score = capacity_norm × 60 + price_norm × 40`.
+
+### AI Integration
+
+- **Provider**: Groq API (`llama-3.3-70b-versatile`)
+- **System prompt**: Injected with live EIA market numbers (capacity GW, electricity price, top 3 states for solar/wind) and the user's current calculator project (type, state, size, PPA rate, IRR)
+- **Citation instruction**: Responses are instructed to attribute numbers to EIA/NREL by source name
+- **Conversation history**: Full `messages` array is sent on every request — Groq handles stateless multi-turn context
 
 ---
 
-## Frontend Architecture (React + Vite)
+## Frontend Architecture (React + Vite — `frontend/src/App.jsx`)
 
 ### Project Structure
 
 ```
 frontend/
 ├── src/
-│   ├── components/
-│   │   ├── Tab1_Market.jsx
-│   │   ├── Tab2_Calculator.jsx
-│   │   ├── Tab3_Research.jsx
-│   │   ├── Tab4_Map.jsx
-│   │   └── shared/
-│   │       ├── ChartContainer.jsx
-│   │       ├── InputForm.jsx
-│   │       └── LoadingState.jsx
-│   ├── api/
-│   │   ├── client.js                  # axios instance + helpers
-│   │   ├── market.js
-│   │   ├── calculator.js
-│   │   ├── location.js
-│   │   └── research.js
-│   ├── App.jsx                        # Tab router + shared state
-│   └── App.css
+│   ├── App.jsx       # Entire application — all 4 tab components + helpers
+│   ├── App.css       # All styles
+│   └── api/
+│       └── client.js # axios wrappers for all backend endpoints
 ├── index.html
 ├── vite.config.js
 └── package.json
 ```
 
+All tab components live in `App.jsx` as named functions (`MarketTab`, `CalculatorTab`, `AITab`, `GeographicTab`, `USMap`). There is no `components/` directory.
+
 ### Component Hierarchy
 
 ```
-App (Tab Router + App State)
-├── Tab 1: Market Overview
-│   ├── MarketSummary (cards)
-│   ├── PriceTrendChart
-│   └── CapacityByFuelChart
-├── Tab 2: Project Calculator
-│   ├── InputForm
-│   ├── OutputMetrics
-│   ├── CashflowChart
-│   └── ScenarioToggle
-├── Tab 3: Research Assistant
-│   ├── ChatHistory
-│   ├── MessageInput
-│   └── ResearchContext
-└── Tab 4: Geographic Map
-    ├── USMapWithOverlays
-    ├── StateDetail
-    └── DataOverlayToggle
+App (tab router + shared state)
+├── MarketTab
+│   ├── 4 metric cards (price, total GW, solar GW, wind GW)
+│   ├── Line chart — 12-month electricity price trend (Chart.js)
+│   └── Top 3 states tables — solar + wind
+├── CalculatorTab
+│   ├── Scenario bar (Base / Optimistic / Conservative)
+│   ├── Input panel (all sliders — runs calcLocally on every render)
+│   └── Results panel
+│       ├── Key returns grid (IRR, NPV, LCOE, Payback)
+│       ├── Project performance grid
+│       ├── Capital structure grid
+│       └── Bar chart — 25-year annual cash flows (Chart.js)
+├── AITab
+│   ├── Mode selector (Analyst / Opportunities / Technology / Policy)
+│   ├── Messages area (chat history)
+│   ├── Quick-prompt buttons (4 per mode)
+│   ├── Text input + send
+│   └── Right sidebar (active project context + saved notes)
+└── GeographicTab
+    ├── Mode toggle (Map View / Compare States)
+    ├── USMap (D3 choropleth — capacity heatmap, clickable states)
+    ├── State detail panel (investment score, solar GW, wind GW, rate)
+    └── Compare mode (multi-select state cards + comparison table)
 ```
 
 ### Shared App State
 
 ```javascript
-// Managed via React Context / useState
-{
-  // Market data (loaded once)
-  market: {
-    prices: [...],
-    capacity: {...},
-    rankings: [...]
-  },
+// App component — passed as props (no Context API)
+const [calculatorState, setCalculatorState] = useState({})
+// Set by CalculatorTab.onUpdate — contains: type, state, system_size_kw,
+// ppa_rate_cents_kwh, irr_pct, degradation_rate_pct, escalation_rate_pct
+// Consumed by: AITab (injected into every chat request)
 
-  // Calculator state (flows to Tab 1, 3, 4)
-  calculator: {
-    type: "solar",
-    size_kw: 50,
-    location_state: "CA",
-    location_zip: "94301",
-    results: { irr, npv, lcoe, ... }
-  },
-
-  // Map state (flows to Tab 2)
-  selectedLocation: {
-    state: "CA",
-    zip: "94301",
-    rates: 0.128,
-    solar_resource: 5.2
-  },
-
-  // Research context
-  research: {
-    messages: [...],
-    loading: false
-  }
-}
+const [geoSelection, setGeoSelection] = useState(null)
+// Set by GeographicTab.onSelectState — contains: { state, rate }
+// Consumed by: CalculatorTab useEffect → updates state + ppaRate sliders
 ```
 
-### Cross-Tab Data Flow Examples
+### Client-Side Calculator (`calcLocally`)
 
-**Flow 1: Map → Calculator**
-- User clicks on California in Tab 4 (Map)
-- `selectedLocation` state updates
-- Tab 2 (Calculator) auto-populates location fields
-- User can immediately recalculate with new location data
+All financial math runs synchronously in the browser on every render — no server roundtrip. Mirrors the logic in `POST /api/calculate`.
 
-**Flow 2: Calculator → Market Overview**
-- User enters project scenario in Tab 2
-- Results generate (IRR, NPV, etc.)
-- Tab 1 compares to market baseline (e.g., "Your IRR: 8.8% vs Market Avg: 7.2%")
+**Inputs (all editable sliders):**
+- System size (kW), capacity factor, degradation rate (%/yr)
+- Installation cost ($/kW), O&M cost ($/kW-yr), PPA rate (¢/kWh), escalation rate (%/yr)
+- Debt ratio (%), interest rate (%), loan term (yrs), federal ITC (%)
 
-**Flow 3: Calculator + Market → AI Research**
-- User asks question in Tab 3
-- AI receives: market data + user's calculator scenario
-- AI provides context-aware answer with numbers
+**Year-by-year loop (25 years):**
+```
+production_yr = baseProduction × (1 − degradation)^(year−1)
+revenue_yr    = production_yr × ppaRate × (1 + escalation)^(year−1) / 100
+equityCF_yr   = revenue_yr − opex − debtService − taxes
+npv          += equityCF_yr / (1.08)^year
+```
+
+**Output metrics:** IRR (approximation), NPV (8% discount), LCOE, payback period, 25-year cash flow array.
+
+### Map Implementation
+
+- **Library**: D3.js + `topojson-client`
+- **Geo data**: `cdn.jsdelivr.net/npm/us-atlas@3/states-10m.json` (loaded once)
+- **FIPS mapping**: Hardcoded `FIPS_TO_ABBR` dict maps numeric state IDs → abbreviations
+- **Color scale**: `d3.scaleSequential + d3.interpolateYlOrRd` — maps total renewable GW per state
+- **Interaction**: Click fires `onSelectState({ state, rate })` → updates App's `geoSelection` → CalculatorTab syncs
+
+### Cross-Tab Data Flow (2 instances)
+
+**Flow 1: Geographic → Calculator**
+```
+User clicks state on map
+  → handleStateSelect(abbr) in GeographicTab
+  → onSelectState({ state: abbr, rate: electricity_rate_cents_kwh })
+  → App: setGeoSelection({ state, rate })
+  → CalculatorTab useEffect([geoSelection])
+  → setState(abbr) + setPpaRate(rate)
+  → "📍 from map" badge appears next to selected state
+```
+
+**Flow 2: Calculator → AI Research**
+```
+User edits any calculator input
+  → calcLocally() re-runs synchronously
+  → useEffect([type, state, sizeKw, ppaRate, irr_pct, ...])
+  → onUpdate(calculatorState) in App
+  → calculatorState prop flows to AITab
+  → Displayed in right sidebar ("Your Project" panel)
+  → Included in every POST /api/chat request as calculator_state
+  → Injected into Groq system prompt: "USER PROJECT: {...}"
+```
 
 ---
 
-## Data Integration
+## Data Sources
 
-### Public APIs Used
-
-| API | Purpose | Integration Point |
-|-----|---------|-------------------|
-| **EIA Open Data** | Electricity prices, capacity by state | Backend `/api/market/` |
-| **NREL PVWatts** | Solar production estimates | Backend `/api/calculate/` |
-| **NREL Wind Toolkit** | Wind resource data | Backend `/api/location/` |
-| **OpenEI** | Utility rates by zip | Backend `/api/location/` |
-| **Anthropic Claude** | AI research assistant | Backend `/api/chat/` |
-
-### Error Handling
-
-- **API failures**: Return cached data or graceful error message
-- **Rate limits**: Queue requests, show "Loading..." state
-- **Invalid location**: Fallback to state average rates
-- **Network offline**: Show stale data with timestamp, disable live refresh
+| API | What's Used | How |
+|-----|-------------|-----|
+| **EIA v2** `/electricity/state-electricity-profiles/capability` | Solar + wind installed capacity (MW) by state | Backend — 3 parallel async calls, 24h cache |
+| **EIA v2** `/electricity/retail-sales` | Residential electricity price by state + US average | Backend — same request batch |
+| **NREL PVWatts v8** | Solar capacity factor + irradiance by lat/lon | Backend — `GET /api/location/{state}` (on-demand) |
+| **us-atlas TopoJSON** | US state boundary GeoJSON for choropleth | Frontend — fetched once from CDN |
+| **Groq API** | LLM inference (Llama 3.3 70B) | Backend — `POST /api/chat` |
 
 ---
 
-## Deployment Architecture
+## Deployment
 
-### Frontend (Vercel/Netlify/Cloudflare Pages)
+### Frontend → Vercel (or Netlify)
+- Build: `npm run build` → `/dist`
+- Env var: `VITE_API_URL` pointing to backend URL
+- Static hosting, CDN-distributed
 
-```
-- Deploy from GitHub main branch
-- Environment variables: VITE_API_URL=https://api.example.com
-- Auto-deploy on push
-- CDN caching: 60s for HTML, 1 year for /dist
-```
-
-### Backend (Render/Railway/Heroku)
-
-```
-- Deploy from GitHub main branch
-- Environment variables: ANTHROPIC_API_KEY, EIA_API_KEY, etc.
-- Auto-deploy on push
-- Python 3.10+, Uvicorn
-- Health check: GET / returns 200
-```
+### Backend → Render (or Railway)
+- Start command: `uvicorn main:app --host 0.0.0.0 --port 8000`
+- Env vars: `EIA_API_KEY`, `NREL_API_KEY`, `GROQ_API_KEY`
+- Health check: `GET /api/health`
+- CORS: configured to allow the deployed frontend origin
 
 ### Environment Variables
 
-Never commit `.env` files. Set in hosting platform dashboard:
+**Backend `.env` (never committed):**
+```
+EIA_API_KEY=...
+NREL_API_KEY=...
+GROQ_API_KEY=...
+```
 
-**Backend:**
-- `ANTHROPIC_API_KEY` - Claude API key
-- `EIA_API_KEY` - EIA Open Data key
-- `NREL_API_KEY` - NREL key
-- `FRED_API_KEY` - Optional FRED key
-
-**Frontend:**
-- `VITE_API_URL` - Backend URL (e.g., https://api.example.com)
-
----
-
-## Performance Considerations
-
-- **Chart.js configs**: Limit data points to last 24 months for smooth rendering
-- **Map rendering**: Use vector tiles, lazy-load state data
-- **API calls**: Batch requests where possible, cache aggressively
-- **Calculator**: All math runs client-side (instant updates)
-- **AI responses**: Show streaming text if response is >500 chars
-
----
-
-## Testing Strategy
-
-- **Unit tests**: Calculator financial formulas (IRR, NPV, LCOE)
-- **Integration tests**: API endpoints with mock data
-- **E2E**: Cross-tab data flow (Map → Calculator → Market)
-- **Manual**: Live API testing before deployment
-
----
-
-## Future Improvements (Post-Hackathon)
-
-- Add WebSocket for real-time price updates
-- Implement user accounts + saved scenarios
-- Add database for scenario history
-- Expand to wind + hybrid projects
-- Add sensitivity analysis heat maps
-- PDF export with project summary
+**Frontend `.env` (never committed):**
+```
+VITE_API_URL=https://your-backend.onrender.com
+```

@@ -77,10 +77,10 @@ See [docs/architecture.md](docs/architecture.md) for detailed system design.
 
 **Quick Summary:**
 - **Tab 1**: Market Overview (live electricity prices, capacity trends)
-- **Tab 2**: Project Calculator (IRR, NPV, LCOE with instant client-side updates)
+- **Tab 2**: Project Calculator (IRR, NPV, LCOE with instant client-side calculations — no server roundtrip)
 - **Tab 3**: AI Research Assistant (Claude with live market data context)
-- **Tab 4**: Geographic Map (solar irradiance, electricity rates by region)
-- **Cross-Tab Flow**: Data flows between Calculator → Market Overview → AI Research
+- **Tab 4**: Geographic Map (D3 choropleth — total renewable capacity heatmap, clickable states)
+- **Cross-Tab Flow**: Geographic state click → updates Calculator location; Calculator state → AI Research context
 
 ---
 
@@ -90,7 +90,7 @@ See [docs/architecture.md](docs/architecture.md) for detailed system design.
 |-----------|------|--------|
 | **Frontend** | React 18 + Vite | Fast HMR, modern ecosystem (Chart.js, Leaflet) |
 | **Backend** | Python FastAPI | Async API calls, fast deployment |
-| **Maps** | Leaflet.js + OpenStreetMap | Lightweight, free, no API key |
+| **Maps** | D3.js + TopoJSON | Choropleth rendering, no API key, full control |
 | **Charts** | Chart.js + react-chartjs-2 | Interactive, responsive |
 | **AI** | Anthropic Claude API | Free $5 credit, excellent for analysis |
 | **Public APIs** | EIA, NREL, OpenEI | Live renewable energy market data |
@@ -114,7 +114,7 @@ See [docs/architecture.md](docs/architecture.md) for detailed system design.
 |-----------|--------|-------------------|
 | **AI Integration** | 25% | Claude research assistant with live market data context, cites sources |
 | **Technical Architecture** | 25% | Clean FastAPI backend, React components, cross-tab data flow, caching |
-| **UI/UX & Data Viz** | 20% | Professional design, Chart.js + Leaflet, responsive, loading states |
+| **UI/UX & Data Viz** | 20% | Professional design, Chart.js + D3 choropleth map, responsive, loading states |
 | **Data Engineering** | 15% | EIA + NREL APIs integrated, error handling, rate limit mitigation |
 | **Project Management** | 15% | Planning doc, clean git history, architecture doc, this README |
 
