@@ -8,6 +8,7 @@ import * as d3 from 'd3'
 import * as topojson from 'topojson-client'
 import { getMarketSummary, getStateRankings, sendChatMessage, healthCheck } from './api/client'
 import { generateProjectPDF } from './utils/exportPDF'
+import { generateProjectExcel } from './utils/exportExcel'
 import './App.css'
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, BarElement, Title, Tooltip, Legend, Filler)
@@ -271,6 +272,8 @@ function MarketTab() {
   const [error, setError] = useState('')
   const [lastUpdated, setLastUpdated] = useState(null)
   const [refreshing, setRefreshing] = useState(false)
+  const [anomalies, setAnomalies] = useState(null)
+  const [anomalyLoading, setAnomalyLoading] = useState(false)
 
   async function loadMarket(isRefresh = false) {
     if (isRefresh) setRefreshing(true)
@@ -285,6 +288,34 @@ function MarketTab() {
     } finally {
       setLoading(false)
       setRefreshing(false)
+    }
+  }
+
+  async function handleCheckAnomalies() {
+    if (!market) return
+    setAnomalyLoading(true)
+    setAnomalies(null)
+    const priceHistory = market.price_history || []
+    const prompt = `You are a data quality analyst for a renewable energy investment platform. Review this live US electricity market data for anomalies, unusual patterns, or values that deviate significantly from historical norms.
+
+CURRENT MARKET DATA (from EIA API):
+- US Average Electricity Price: ${market.electricity_price_cents_per_kwh?.toFixed(2)}¢/kWh
+- Total US Solar Capacity: ${market.solar_capacity_gw?.toFixed(0)} GW
+- Total US Wind Capacity: ${market.wind_capacity_gw?.toFixed(0)} GW
+- Renewables % of Total: ${market.renewables_pct_of_total?.toFixed(1)}%
+- YoY Growth: ${market.yoy_growth_pct}%
+
+RECENT PRICE HISTORY (last 12 months): ${priceHistory.slice(0,12).map(([p,v]) => `${p}: ${v}¢`).join(', ')}
+
+Flag any anomalies you detect. For each, note: what's unusual, why it matters to investors, and confidence level (High/Medium/Low). If everything looks normal, say so clearly. Keep response concise and investor-focused.`
+
+    try {
+      const res = await sendChatMessage([{ role: 'user', content: prompt }], {})
+      setAnomalies(res.reply || res.error || 'No response.')
+    } catch (e) {
+      setAnomalies('Error detecting anomalies: ' + e.message)
+    } finally {
+      setAnomalyLoading(false)
     }
   }
 
@@ -325,6 +356,13 @@ function MarketTab() {
           >
             {refreshing ? '⟳ Refreshing...' : '⟳ Refresh Data'}
           </button>
+          <button
+            className="control-btn"
+            onClick={handleCheckAnomalies}
+            disabled={anomalyLoading || !market}
+          >
+            {anomalyLoading ? '⏳ Checking...' : '🔍 Detect Anomalies'}
+          </button>
         </div>
       </div>
 
@@ -354,6 +392,16 @@ function MarketTab() {
       ) : (
         <div className="market-cards">
           {[1,2,3,4].map(i => <div key={i} className="card skeleton"></div>)}
+        </div>
+      )}
+
+      {(anomalies || anomalyLoading) && (
+        <div className="anomaly-panel">
+          <h3>🔍 AI Anomaly Detection</h3>
+          {anomalyLoading
+            ? <p style={{ opacity: 0.6 }}>Analyzing market data patterns...</p>
+            : <p style={{ whiteSpace: 'pre-wrap', lineHeight: '1.6' }}>{anomalies}</p>
+          }
         </div>
       )}
 
@@ -545,6 +593,19 @@ Project Details:
     } catch (e) {
       console.error('PDF export failed:', e)
       alert('Failed to generate PDF: ' + e.message)
+    }
+  }
+
+  function handleExportExcel() {
+    try {
+      generateProjectExcel(type, state, result, {
+        sizeKw, capFactor, costPerKw, omRate, ppaRate,
+        escalationRate, degradationRate, debtPct,
+        interestRate, termYears, itcPct,
+      })
+    } catch (e) {
+      console.error('Excel export failed:', e)
+      alert('Failed to generate Excel: ' + e.message)
     }
   }
 
@@ -821,6 +882,9 @@ Project Details:
             </button>
             <button className="memo-generate-btn" onClick={handleExportPDF} style={{ marginLeft: '0.5rem' }}>
               📥 Export PDF Report
+            </button>
+            <button className="memo-generate-btn" onClick={handleExportExcel} style={{ marginLeft: '0.5rem' }}>
+              📊 Export Excel Model
             </button>
           </div>
         </div>
@@ -1217,6 +1281,8 @@ function GeographicTab({ onSelectState }) {
   const [selectedState, setSelectedState] = useState('AZ')
   const [compareMode, setCompareMode] = useState(false)
   const [comparisonSelected, setComparisonSelected] = useState(['AZ', 'CA'])
+  const [aiCompareResult, setAiCompareResult] = useState('')
+  const [aiCompareLoading, setAiCompareLoading] = useState(false)
 
   useEffect(() => {
     async function loadStates() {
@@ -1245,6 +1311,24 @@ function GeographicTab({ onSelectState }) {
         ? prev.filter(s => s !== stateName)
         : [...prev, stateName]
     )
+  }
+
+  async function handleAICompare() {
+    if (comparisonStates.length < 2) return
+    setAiCompareLoading(true)
+    setAiCompareResult('')
+    const stateList = comparisonStates.map(s =>
+      `${STATE_NAMES[s.state] || s.state}: Solar ${s.solar_capacity_gw.toFixed(1)} GW, Wind ${s.wind_capacity_gw.toFixed(1)} GW, Rate ${s.electricity_rate_cents_kwh?.toFixed(1)}¢/kWh, Score ${s.solar_potential_score}`
+    ).join('\n')
+    const prompt = `Compare these US states for renewable energy investment and explain key tradeoffs an investor should know:\n\n${stateList}\n\nProvide: which is better for solar vs wind, electricity rate implications, risks and opportunities for each. Be specific and data-driven. Cite EIA data where relevant.`
+    try {
+      const res = await sendChatMessage([{ role: 'user', content: prompt }], {})
+      setAiCompareResult(res.reply || res.error || 'No response.')
+    } catch (e) {
+      setAiCompareResult('Error: ' + e.message)
+    } finally {
+      setAiCompareLoading(false)
+    }
   }
 
   const comparisonStates = allStates.filter(s => comparisonSelected.includes(s.state))
@@ -1319,7 +1403,14 @@ function GeographicTab({ onSelectState }) {
 
           {comparisonStates.length > 0 && (
             <div className="comparison-results">
-              <h3>📊 Comparison: {comparisonStates.map(s => STATE_NAMES[s.state] || s.state).join(' vs ')}</h3>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', flexWrap: 'wrap' }}>
+                <h3>📊 Comparison: {comparisonStates.map(s => STATE_NAMES[s.state] || s.state).join(' vs ')}</h3>
+                {comparisonStates.length >= 2 && (
+                  <button className="control-btn" onClick={handleAICompare} disabled={aiCompareLoading}>
+                    {aiCompareLoading ? '⏳ Analyzing...' : '🤖 AI Compare'}
+                  </button>
+                )}
+              </div>
               <div className="comparison-table-wrapper">
                 <table className="comparison-table">
                   <thead>
@@ -1368,6 +1459,16 @@ function GeographicTab({ onSelectState }) {
                   </tbody>
                 </table>
               </div>
+
+              {(aiCompareResult || aiCompareLoading) && (
+                <div className="ai-compare-result">
+                  <h4>🤖 AI Analysis</h4>
+                  {aiCompareLoading
+                    ? <p style={{ opacity: 0.6 }}>Analyzing regions with live market data...</p>
+                    : <p style={{ whiteSpace: 'pre-wrap', lineHeight: '1.6' }}>{aiCompareResult}</p>
+                  }
+                </div>
+              )}
             </div>
           )}
         </div>
