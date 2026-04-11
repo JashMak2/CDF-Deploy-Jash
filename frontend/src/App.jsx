@@ -6,7 +6,7 @@ import {
 import { Line, Bar } from 'react-chartjs-2'
 import * as d3 from 'd3'
 import * as topojson from 'topojson-client'
-import { getMarketSummary, getStateRankings, sendChatMessage, healthCheck } from './api/client'
+import { getMarketSummary, getStateRankings, sendChatMessage, healthCheck, runMonteCarlo } from './api/client'
 import { generateProjectPDF } from './utils/exportPDF'
 import { generateProjectExcel } from './utils/exportExcel'
 import './App.css'
@@ -166,7 +166,7 @@ const CHART_OPTIONS = {
 function ProvenanceBadge({ source, description, timestamp }) {
   return (
     <span className="provenance-badge">
-      ℹ
+      ℹ️
       <span className="provenance-tooltip">
         <strong>Source:</strong> {source}<br />
         {description}
@@ -201,7 +201,7 @@ function SensitivityMatrix({ baseParams }) {
   return (
     <div className="sensitivity-section">
       <button className="sensitivity-toggle-btn" onClick={() => setVisible(v => !v)}>
-        {visible ? '▲ Hide' : '▼ Show'} Sensitivity Analysis
+        {visible ? '⬆️ Hide' : '⬇️ Show'} Sensitivity Analysis
       </button>
       {visible && (
         <div className="sensitivity-body">
@@ -354,14 +354,14 @@ Flag any anomalies you detect. For each, note: what's unusual, why it matters to
             onClick={() => loadMarket(true)}
             disabled={refreshing}
           >
-            {refreshing ? '⟳ Refreshing...' : '⟳ Refresh Data'}
+            {refreshing ? '🔄 Refreshing...' : '🔄 Refresh Data'}
           </button>
           <button
             className="control-btn"
             onClick={handleCheckAnomalies}
             disabled={anomalyLoading || !market}
           >
-            {anomalyLoading ? '⏳ Checking...' : '🔍 Detect Anomalies'}
+            {anomalyLoading ? '🔍 Checking...' : '⚠️ Detect Anomalies'}
           </button>
         </div>
       </div>
@@ -397,7 +397,7 @@ Flag any anomalies you detect. For each, note: what's unusual, why it matters to
 
       {(anomalies || anomalyLoading) && (
         <div className="anomaly-panel">
-          <h3>🔍 AI Anomaly Detection</h3>
+          <h3>⚠️ AI Anomaly Detection</h3>
           {anomalyLoading
             ? <p style={{ opacity: 0.6 }}>Analyzing market data patterns...</p>
             : <p style={{ whiteSpace: 'pre-wrap', lineHeight: '1.6' }}>{anomalies}</p>
@@ -487,6 +487,146 @@ Flag any anomalies you detect. For each, note: what's unusual, why it matters to
   )
 }
 
+// ============ MONTE CARLO RISK PANEL ============
+function MonteCarloPanel({ baseParams }) {
+  const [visible, setVisible] = useState(false)
+  const [loading, setLoading] = useState(false)
+  const [result, setResult] = useState(null)
+  const [targetIrr, setTargetIrr] = useState(8)
+  const [error, setError] = useState('')
+
+  async function runSimulation() {
+    setLoading(true)
+    setError('')
+    try {
+      const res = await runMonteCarlo({ ...baseParams, target_irr_pct: targetIrr })
+      setResult(res)
+    } catch (e) {
+      setError('Simulation failed. Make sure the backend is running.')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  function probStyle(pct) {
+    if (pct >= 70) return { background: 'rgba(16,185,129,0.12)', borderColor: 'rgba(16,185,129,0.4)', color: '#10b981' }
+    if (pct >= 40) return { background: 'rgba(251,191,36,0.12)',  borderColor: 'rgba(251,191,36,0.4)',  color: '#fbbf24' }
+    return             { background: 'rgba(239,68,68,0.12)',   borderColor: 'rgba(239,68,68,0.4)',   color: '#ef4444' }
+  }
+
+  const histChartData = result ? {
+    labels: result.histogram.bins.map(b => `${b.toFixed(1)}%`),
+    datasets: [{
+      label: 'Simulations',
+      data: result.histogram.counts,
+      backgroundColor: result.histogram.bins.map(b => b >= targetIrr ? 'rgba(16,185,129,0.65)' : 'rgba(239,68,68,0.5)'),
+      borderColor:     result.histogram.bins.map(b => b >= targetIrr ? '#10b981' : '#ef4444'),
+      borderWidth: 1,
+      borderRadius: 3,
+    }],
+  } : null
+
+  return (
+    <div className="monte-carlo-section">
+      <button className="sensitivity-toggle-btn" onClick={() => setVisible(v => !v)}>
+        {visible ? '⬆️ Hide' : '⬇️ Show'} Monte Carlo Risk Analysis
+      </button>
+      {visible && (
+        <div className="monte-carlo-body">
+          <p className="mc-desc">
+            Runs 2,000 simulations varying capacity factor (±12%), PPA rate (±15%), installation cost (±10%),
+            and interest rate (±15%) based on real project development uncertainty ranges.{' '}
+            <strong>Green bars = simulations that hit your target IRR.</strong>
+          </p>
+
+          <div className="mc-controls">
+            <div className="mc-target-row">
+              <label className="mc-target-label">Target IRR: <strong>{targetIrr}%</strong></label>
+              <input
+                type="range" min="4" max="20" step="0.5" value={targetIrr}
+                onChange={e => { setTargetIrr(Number(e.target.value)); setResult(null) }}
+                className="mc-target-slider"
+              />
+            </div>
+            <button className="memo-generate-btn" onClick={runSimulation} disabled={loading}>
+              {loading ? '🎲 Running 2,000 simulations...' : '🎲 Run Risk Simulation'}
+            </button>
+          </div>
+
+          {error && <p style={{ color: '#ef4444', marginTop: '0.5rem', fontSize: '0.9rem' }}>{error}</p>}
+
+          {result && (
+            <>
+              <div className="mc-stats">
+                <div className="mc-stat-box">
+                  <p className="label">P10 — Pessimistic</p>
+                  <p className="mc-number" style={{ color: '#ef4444' }}>{result.percentiles.p10}%</p>
+                  <p className="help-text">90% of outcomes above this</p>
+                </div>
+                <div className="mc-stat-box mc-stat-highlighted">
+                  <p className="label">P50 — Median IRR</p>
+                  <p className="mc-number">{result.percentiles.p50}%</p>
+                  <p className="help-text">Most likely outcome</p>
+                </div>
+                <div className="mc-stat-box">
+                  <p className="label">P90 — Optimistic</p>
+                  <p className="mc-number" style={{ color: '#10b981' }}>{result.percentiles.p90}%</p>
+                  <p className="help-text">10% of outcomes above this</p>
+                </div>
+                <div className="mc-stat-box" style={probStyle(result.prob_above_target_pct)}>
+                  <p className="label">Prob ≥ {targetIrr}% IRR</p>
+                  <p className="mc-number">{result.prob_above_target_pct}%</p>
+                  <p className="help-text">of 2,000 runs hit target</p>
+                </div>
+              </div>
+
+              <div className="mc-range-row">
+                <span>Range: <strong>{result.min_irr}% – {result.max_irr}%</strong></span>
+                <span>Mean: <strong>{result.mean_irr}%</strong></span>
+                <span>Std Dev: <strong>±{result.std_irr}%</strong></span>
+              </div>
+
+              <div className="chart-wrapper" style={{ marginTop: '1rem' }}>
+                <h4 style={{ color: '#cbd5e1', marginBottom: '0.5rem', fontSize: '0.95rem' }}>
+                  IRR Distribution — 2,000 Simulations
+                </h4>
+                <div style={{ height: '240px' }}>
+                  <Bar
+                    data={histChartData}
+                    options={{
+                      ...CHART_OPTIONS,
+                      plugins: {
+                        legend: { display: false },
+                        tooltip: {
+                          callbacks: {
+                            title: ctx => `IRR ≈ ${ctx[0].label}`,
+                            label: ctx => `${ctx.parsed.y} simulations`,
+                          }
+                        }
+                      },
+                      scales: {
+                        x: {
+                          ...CHART_OPTIONS.scales.x,
+                          title: { display: true, text: 'IRR (%)', color: '#94a3b8' },
+                          ticks: { color: '#94a3b8', maxTicksLimit: 10 },
+                        },
+                        y: {
+                          ...CHART_OPTIONS.scales.y,
+                          title: { display: true, text: 'Simulations', color: '#94a3b8' },
+                        }
+                      }
+                    }}
+                  />
+                </div>
+              </div>
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ============ TAB 2: PROJECT CALCULATOR (fully client-side math) ============
 function CalculatorTab({ onUpdate, geoSelection }) {
   const [type, setType] = useState('solar')
@@ -570,6 +710,16 @@ Project Details:
     }
   }
 
+  function downloadMemo() {
+    const blob = new Blob([memoText], { type: 'text/plain' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `Investment-Memo-${STATE_NAMES[state] || state}-${(sizeKw / 1000).toFixed(1)}MW.txt`
+    a.click()
+    URL.revokeObjectURL(url)
+  }
+
   async function handleExportPDF() {
     try {
       await generateProjectPDF(
@@ -640,7 +790,7 @@ Project Details:
 
       <div className="calc-layout">
         <div className="calc-inputs">
-          <h3>📋 Project Setup</h3>
+          <h3>🏗️ Project Setup</h3>
 
           <div className="input-section">
             <div className="input-group">
@@ -648,7 +798,7 @@ Project Details:
               <p className="help-text">Choose between solar PV and wind turbines</p>
               <select value={type} onChange={e => setType(e.target.value)}>
                 <option value="solar">☀️ Solar PV</option>
-                <option value="wind">💨 Wind Turbine</option>
+                <option value="wind">🌬️ Wind Turbine</option>
               </select>
             </div>
 
@@ -685,7 +835,7 @@ Project Details:
             </div>
           </div>
 
-          <h3>⚡ Physical Specs</h3>
+          <h3>📐 Physical Specs</h3>
           <div className="input-section">
             <div className="input-group">
               <label>System Size: <strong>{(sizeKw / 1000).toFixed(1)} MW</strong></label>
@@ -757,7 +907,7 @@ Project Details:
             </div>
           </div>
 
-          <h3>📉 Long-Term Performance</h3>
+          <h3>📅 Long-Term Performance</h3>
           <div className="input-section">
             <div className="input-group">
               <label>Degradation Rate: <strong>{degradationRate.toFixed(1)}%/yr</strong></label>
@@ -776,10 +926,10 @@ Project Details:
         </div>
 
         <div className="calc-results">
-          <h3>📊 Financial Results</h3>
+          <h3>💰 Financial Results</h3>
 
           <div className="result-section">
-            <h4 className="result-heading">🎯 Key Returns</h4>
+            <h4 className="result-heading">📈 Key Returns</h4>
             <div className="results-grid">
               <div className="result-box highlighted">
                 <p className="label">IRR</p>
@@ -805,7 +955,7 @@ Project Details:
           </div>
 
           <div className="result-section">
-            <h4 className="result-heading">⚙️ Project Performance</h4>
+            <h4 className="result-heading">⚡ Project Performance</h4>
             <div className="results-grid">
               <div className="result-box">
                 <p className="label">Annual Production</p>
@@ -827,7 +977,7 @@ Project Details:
           </div>
 
           <div className="result-section">
-            <h4 className="result-heading">💵 Capital Structure</h4>
+            <h4 className="result-heading">🏦 Capital Structure</h4>
             <div className="results-grid">
               <div className="result-box">
                 <p className="label">Total CAPEX</p>
@@ -850,7 +1000,7 @@ Project Details:
           </div>
 
           <div className="result-section">
-            <h4 className="result-heading">📈 25-Year Annual Cash Flows</h4>
+            <h4 className="result-heading">💵 25-Year Annual Cash Flows</h4>
             <div className="chart-wrapper" style={{ marginTop: 0 }}>
               <div style={{ height: '220px' }}>
                 <Bar
@@ -876,14 +1026,14 @@ Project Details:
             </div>
           </div>
 
-          <div style={{ padding: '0 0 0.5rem' }}>
+          <div className="action-btn-row">
             <button className="memo-generate-btn" onClick={generateMemo} disabled={memoLoading}>
-              {memoLoading ? '⏳ Generating Memo...' : '📄 Generate Investment Memo'}
+              {memoLoading ? '✍️ Generating Memo...' : '📝 Generate Investment Memo'}
             </button>
-            <button className="memo-generate-btn" onClick={handleExportPDF} style={{ marginLeft: '0.5rem' }}>
-              📥 Export PDF Report
+            <button className="memo-generate-btn" onClick={handleExportPDF}>
+              📄 Export PDF Report
             </button>
-            <button className="memo-generate-btn" onClick={handleExportExcel} style={{ marginLeft: '0.5rem' }}>
+            <button className="memo-generate-btn" onClick={handleExportExcel}>
               📊 Export Excel Model
             </button>
           </div>
@@ -899,12 +1049,28 @@ Project Details:
         term_years: termYears, itc_pct: itcPct,
       }} />
 
+      <MonteCarloPanel baseParams={{
+        type, location_state: state, system_size_kw: sizeKw,
+        capacity_factor: capFactor, cost_per_kw: costPerKw,
+        om_cost_per_kw_year: omRate, ppa_rate_cents_kwh: ppaRate,
+        escalation_rate_pct: escalationRate, degradation_rate_pct: degradationRate,
+        debt_pct: debtPct, interest_rate_pct: interestRate,
+        term_years: termYears, itc_pct: itcPct,
+      }} />
+
       {memoVisible && (
         <div className="memo-overlay" onClick={e => { if (e.target === e.currentTarget) setMemoVisible(false) }}>
           <div className="memo-modal">
             <div className="memo-header">
               <h3>Investment Memo — {STATE_NAMES[state] || state} {(sizeKw / 1000).toFixed(1)} MW {type.charAt(0).toUpperCase() + type.slice(1)}</h3>
-              <button className="memo-close-btn" onClick={() => setMemoVisible(false)}>✕</button>
+              <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                {memoText && !memoLoading && (
+                  <button className="control-btn" onClick={downloadMemo} title="Download memo as text file">
+                    💾 Download
+                  </button>
+                )}
+                <button className="memo-close-btn" onClick={() => setMemoVisible(false)}>❌</button>
+              </div>
             </div>
             <div className="memo-body">
               {memoLoading ? (
@@ -924,20 +1090,21 @@ Project Details:
 }
 
 // ============ TAB 3: AI RESEARCH ============
-function AITab({ calculatorState }) {
+function AITab({ calculatorState, onUpdate }) {
   const [activeSubTab, setActiveSubTab] = useState('analyst')
   const [messages, setMessages] = useState([
-    { role: 'assistant', content: '🔬 Welcome to AI Research! I analyze renewable energy investments with live market data. Choose an analysis type to get started.', timestamp: new Date() }
+    { role: 'assistant', content: '🤖 Welcome to AI Research! I analyze renewable energy investments with live market data. Choose an analysis type to get started.', timestamp: new Date() }
   ])
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
   const [savedNotes, setSavedNotes] = useState([])
   const messagesEndRef = useRef(null)
+  const messagesAreaRef = useRef(null)
 
   const scrollToBottom = () => {
-    if (messagesEndRef.current) {
+    if (messagesAreaRef.current) {
       setTimeout(() => {
-        messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+        messagesAreaRef.current.scrollTop = messagesAreaRef.current.scrollHeight
       }, 100)
     }
   }
@@ -948,7 +1115,7 @@ function AITab({ calculatorState }) {
 
   const researchTopics = {
     analyst: {
-      title: '📊 Investment Analyst',
+      title: '💼 Investment Analyst',
       icon: '📈',
       description: 'Get detailed financial analysis and market insights',
       prompts: [
@@ -959,7 +1126,7 @@ function AITab({ calculatorState }) {
       ]
     },
     opportunities: {
-      title: '🎯 Market Opportunities',
+      title: '🌍 Market Opportunities',
       icon: '🌍',
       description: 'Discover high-potential investment regions',
       prompts: [
@@ -970,7 +1137,7 @@ function AITab({ calculatorState }) {
       ]
     },
     technology: {
-      title: '⚡ Technology & Engineering',
+      title: '🔧 Technology & Engineering',
       icon: '🔧',
       description: 'Technical performance & equipment advice',
       prompts: [
@@ -981,8 +1148,8 @@ function AITab({ calculatorState }) {
       ]
     },
     policy: {
-      title: '⚖️ Policy & Incentives',
-      icon: '📋',
+      title: '🏛️ Policy & Incentives',
+      icon: '📜',
       description: 'Navigate federal and state incentives',
       prompts: [
         'Current federal solar tax credit status?',
@@ -1033,12 +1200,12 @@ function AITab({ calculatorState }) {
   }
 
   const clearChat = () => {
-    setMessages([{ role: 'assistant', content: '🔬 Research session cleared. What would you like to analyze?', timestamp: new Date() }])
+    setMessages([{ role: 'assistant', content: '🧹 Research session cleared. What would you like to analyze?', timestamp: new Date() }])
   }
 
   return (
     <div className="tab-content">
-      <h2>🤖 AI Research Lab</h2>
+      <h2>AI Research Lab</h2>
       <p className="subtitle-text">Deep market analysis powered by live data and intelligent reasoning</p>
 
       <div className="research-layout">
@@ -1073,7 +1240,7 @@ function AITab({ calculatorState }) {
           </div>
 
           <div className="research-chat">
-            <div className="messages-area">
+            <div className="messages-area" ref={messagesAreaRef}>
               {messages.map((msg, i) => (
                 <div key={i} className={`message-card ${msg.role}`}>
                   <div className="message-avatar">
@@ -1100,7 +1267,7 @@ function AITab({ calculatorState }) {
                   onClick={() => sendMessage(prompt)}
                   disabled={loading}
                 >
-                  ✨ {prompt}
+                  💬 {prompt}
                 </button>
               ))}
             </div>
@@ -1115,7 +1282,7 @@ function AITab({ calculatorState }) {
                 disabled={loading}
               />
               <button onClick={() => sendMessage(input)} disabled={loading} className="send-btn">
-                {loading ? '⏳' : '→'}
+                {loading ? '⏳' : '📤'}
               </button>
             </div>
           </div>
@@ -1124,7 +1291,7 @@ function AITab({ calculatorState }) {
         <div className="research-sidebar">
           {calculatorState && Object.keys(calculatorState).length > 0 && (
             <div className="sidebar-section">
-              <h4 className="sidebar-heading">📌 Your Project</h4>
+              <h4 className="sidebar-heading">📋 Your Project</h4>
               <div className="project-context">
                 {calculatorState.type && (
                   <div className="context-row">
@@ -1340,7 +1507,7 @@ function GeographicTab({ onSelectState }) {
 
       <div className="geo-mode-toggle">
         <button className={`mode-btn ${!compareMode ? 'active' : ''}`} onClick={() => setCompareMode(false)}>
-          📍 Map View
+          🗺️ Map View
         </button>
         <button className={`mode-btn ${compareMode ? 'active' : ''}`} onClick={() => setCompareMode(true)}>
           ⚖️ Compare States
@@ -1392,7 +1559,7 @@ function GeographicTab({ onSelectState }) {
                   <p className="score">Score: {s.solar_potential_score}</p>
                   <p className="capacity">{(s.solar_capacity_gw + s.wind_capacity_gw).toFixed(1)} GW</p>
                   {comparisonSelected.includes(s.state) && (
-                    <div className="check-badge">✓</div>
+                    <div className="check-badge">✅</div>
                   )}
                 </button>
               ))
@@ -1404,10 +1571,10 @@ function GeographicTab({ onSelectState }) {
           {comparisonStates.length > 0 && (
             <div className="comparison-results">
               <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', flexWrap: 'wrap' }}>
-                <h3>📊 Comparison: {comparisonStates.map(s => STATE_NAMES[s.state] || s.state).join(' vs ')}</h3>
+                <h3>⚖️ Comparison: {comparisonStates.map(s => STATE_NAMES[s.state] || s.state).join(' vs ')}</h3>
                 {comparisonStates.length >= 2 && (
                   <button className="control-btn" onClick={handleAICompare} disabled={aiCompareLoading}>
-                    {aiCompareLoading ? '⏳ Analyzing...' : '🤖 AI Compare'}
+                    {aiCompareLoading ? '🧠 Analyzing...' : '🤖 AI Compare'}
                   </button>
                 )}
               </div>
@@ -1521,12 +1688,12 @@ export default function App() {
 
       <header className="app-header">
         <div className="header-left">
-          <h1>⚡ Renewable Energy Dashboard</h1>
+          <h1>🌱 Renewable Energy Dashboard</h1>
           <p className="subtitle">Live market analysis, project economics, AI insights</p>
         </div>
         {apiHealth && (
           <div className="api-status">
-            <p className="status-label">API Status: <span className="status-ok">✓ Connected</span></p>
+            <p className="status-label">API Status: <span className="status-ok">✅ Connected</span></p>
           </div>
         )}
       </header>

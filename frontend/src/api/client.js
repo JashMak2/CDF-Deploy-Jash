@@ -57,4 +57,10 @@ export const healthCheck = async () => {
   return data;
 };
 
+// Monte Carlo risk simulation
+export const runMonteCarlo = async (params) => {
+  const { data } = await client.post('/monte-carlo', params);
+  return data;
+};
+
 export default client;

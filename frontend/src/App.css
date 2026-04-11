@@ -272,13 +272,6 @@ body {
   gap: 0.5rem;
 }
 
-.tab-content h3::before {
-  content: '';
-  width: 4px;
-  height: 24px;
-  background: linear-gradient(180deg, var(--primary), var(--secondary));
-  border-radius: 2px;
-}
 
 .tab-content.error {
   padding: 2rem;
@@ -310,7 +303,6 @@ body {
   text-align: center;
   transition: all 0.5s cubic-bezier(0.34, 1.56, 0.64, 1);
   position: relative;
-  overflow: hidden;
   box-shadow: 0 8px 32px rgba(59, 130, 246, 0.15), inset 0 1px 2px rgba(255, 255, 255, 0.1);
 }
 
@@ -323,6 +315,7 @@ body {
   height: 300%;
   background: radial-gradient(circle, rgba(59, 130, 246, 0.15) 0%, transparent 70%);
   transition: all 0.6s ease;
+  pointer-events: none;
 }
 
 .card:hover {
@@ -330,6 +323,7 @@ body {
   box-shadow: 0 20px 60px rgba(59, 130, 246, 0.3), 0 0 1px rgba(139, 92, 246, 0.3), inset 0 1px 2px rgba(255, 255, 255, 0.15);
   transform: translateY(-16px) scale(1.03);
   background: rgba(21, 27, 47, 0.7);
+  z-index: 10;
 }
 
 .card h3 {
@@ -631,12 +625,6 @@ select:focus {
   text-align: center;
   transition: all 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
   overflow: hidden;
-}
-
-.result-box.highlighted {
-  background: linear-gradient(135deg, rgba(59, 130, 246, 0.2), rgba(139, 92, 246, 0.1));
-  border-color: rgba(59, 130, 246, 0.3);
-  box-shadow: 0 12px 40px rgba(59, 130, 246, 0.25);
 }
 
 .result-box:hover {
@@ -1735,7 +1723,7 @@ select:focus {
   border-radius: 50%;
   font-size: 0.6rem;
   color: var(--primary);
-  cursor: help;
+  cursor: default;
   position: relative;
   margin-left: 5px;
   vertical-align: middle;
@@ -1762,6 +1750,8 @@ select:focus {
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
   white-space: normal;
   pointer-events: none;
+  overflow-wrap: anywhere;
+  text-transform: none;
 }
 
 .provenance-badge:hover .provenance-tooltip {
@@ -1771,12 +1761,6 @@ select:focus {
 /* ============ TIER 2: SENSITIVITY MATRIX ============ */
 .sensitivity-section {
   margin-top: 2rem;
-  background: rgba(21, 27, 47, 0.4);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
-  border: 1px solid rgba(59, 130, 246, 0.2);
-  border-radius: 20px;
-  padding: 1.5rem;
 }
 
 .sensitivity-toggle-btn {
@@ -1932,6 +1916,21 @@ select:focus {
   cursor: not-allowed;
 }
 
+.action-btn-row {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding-top: 0.5rem;
+}
+
+.action-btn-row .memo-generate-btn {
+  width: 100%;
+  margin-top: 0;
+  white-space: nowrap;
+  padding: 0.75rem 1.25rem;
+  font-size: 0.88rem;
+}
+
 /* ============ TIER 2: INVESTMENT MEMO MODAL ============ */
 .memo-overlay {
   position: fixed;
@@ -2080,4 +2079,91 @@ select:focus {
   color: var(--text-muted);
   font-size: 0.88rem;
   line-height: 1.65;
+}
+
+/* ===== MONTE CARLO RISK ANALYSIS ===== */
+.monte-carlo-section {
+  margin-top: 1.5rem;
+}
+
+.monte-carlo-body {
+  background: rgba(99, 102, 241, 0.06);
+  border: 1px solid rgba(99, 102, 241, 0.25);
+  border-radius: 12px;
+  padding: 1.5rem;
+  margin-top: 0.75rem;
+}
+
+.mc-desc {
+  color: var(--text-muted);
+  font-size: 0.88rem;
+  line-height: 1.6;
+  margin-bottom: 1.25rem;
+}
+
+.mc-controls {
+  display: flex;
+  align-items: center;
+  gap: 1.25rem;
+  flex-wrap: wrap;
+  margin-bottom: 1.5rem;
+}
+
+.mc-target-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.mc-target-label {
+  color: var(--text-muted);
+  font-size: 0.9rem;
+  white-space: nowrap;
+  min-width: 130px;
+}
+
+.mc-target-slider {
+  width: 140px;
+  accent-color: var(--primary);
+}
+
+.mc-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+
+.mc-stat-box {
+  background: rgba(15, 23, 42, 0.6);
+  border: 1px solid rgba(71, 85, 105, 0.4);
+  border-radius: 10px;
+  padding: 0.9rem 1rem;
+  text-align: center;
+}
+
+.mc-stat-highlighted {
+  border-color: rgba(99, 102, 241, 0.5);
+  background: rgba(99, 102, 241, 0.1);
+}
+
+.mc-number {
+  font-size: 1.6rem;
+  font-weight: 700;
+  color: var(--primary-light);
+  line-height: 1.2;
+  margin: 0.25rem 0;
+}
+
+.mc-range-row {
+  display: flex;
+  gap: 1.5rem;
+  flex-wrap: wrap;
+  color: var(--text-muted);
+  font-size: 0.88rem;
+  margin-bottom: 0.25rem;
+}
+
+.mc-range-row strong {
+  color: var(--text-primary);
 }

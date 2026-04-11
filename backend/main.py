@@ -1,4 +1,4 @@
-from fastapi import FastAPI 
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 import httpx
 import os
@@ -6,6 +6,7 @@ import json
 import asyncio
 from datetime import datetime, timedelta
 from dotenv import load_dotenv
+import numpy as np
 
 load_dotenv()
 
@@ -443,6 +444,64 @@ def calculate_project_economics(params: dict):
         "payback_years": round(payback_years, 1),
         "project_life_years": project_life,
     }
+
+@app.post("/api/monte-carlo")
+def run_monte_carlo(params: dict):
+    """Monte Carlo risk simulation — 2,000 iterations randomizing key inputs"""
+    n = 2000
+    target_irr = float(params.get("target_irr_pct", 8.0))
+
+    base_cf   = float(params.get("capacity_factor", 0.22))
+    base_ppa  = float(params.get("ppa_rate_cents_kwh", 12.0))
+    base_cost = float(params.get("cost_per_kw", 2000.0))
+    base_rate = float(params.get("interest_rate_pct", 5.5))
+
+    # Volatility assumptions grounded in industry standards:
+    # - Capacity factor ±12%  (NREL P50 resource uncertainty)
+    # - PPA rate       ±15%  (electricity market price volatility)
+    # - Install cost   ±10%  (EPC cost estimation uncertainty)
+    # - Interest rate  ±15%  (financing market conditions)
+    cf_samples   = np.random.normal(base_cf,   base_cf   * 0.12, n).clip(0.05, 0.55)
+    ppa_samples  = np.random.normal(base_ppa,  base_ppa  * 0.15, n).clip(3.0,  40.0)
+    cost_samples = np.random.normal(base_cost, base_cost * 0.10, n).clip(500.0, 8000.0)
+    rate_samples = np.random.normal(base_rate, base_rate * 0.15, n).clip(2.0,  15.0)
+
+    irr_results = []
+    for i in range(n):
+        sim_params = {
+            **params,
+            "capacity_factor":     float(cf_samples[i]),
+            "ppa_rate_cents_kwh":  float(ppa_samples[i]),
+            "cost_per_kw":         float(cost_samples[i]),
+            "interest_rate_pct":   float(rate_samples[i]),
+        }
+        irr_results.append(calculate_project_economics(sim_params)["irr_pct"])
+
+    irr_array = np.array(irr_results)
+    counts, edges = np.histogram(irr_array, bins=20)
+
+    return {
+        "n_simulations": n,
+        "histogram": {
+            "bins":      [round(float(e), 2) for e in edges[:-1]],
+            "counts":    [int(c) for c in counts],
+            "bin_width": round(float(edges[1] - edges[0]), 2),
+        },
+        "percentiles": {
+            "p10": round(float(np.percentile(irr_array, 10)), 1),
+            "p25": round(float(np.percentile(irr_array, 25)), 1),
+            "p50": round(float(np.percentile(irr_array, 50)), 1),
+            "p75": round(float(np.percentile(irr_array, 75)), 1),
+            "p90": round(float(np.percentile(irr_array, 90)), 1),
+        },
+        "mean_irr":              round(float(irr_array.mean()), 1),
+        "std_irr":               round(float(irr_array.std()),  1),
+        "min_irr":               round(float(irr_array.min()),  1),
+        "max_irr":               round(float(irr_array.max()),  1),
+        "target_irr_pct":        target_irr,
+        "prob_above_target_pct": round(float(np.mean(irr_array >= target_irr) * 100), 1),
+    }
+
 
 @app.get("/api/scenarios")
 def get_reference_scenarios():
