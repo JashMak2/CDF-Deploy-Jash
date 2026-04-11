@@ -19,6 +19,37 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# ============ PER-STATE SOLAR/WIND RESOURCE DATA (NREL published averages) ============
+# Solar: avg global horizontal irradiance kWh/m²/day (NREL National Solar Radiation Database)
+STATE_IRRADIANCE = {
+    "AK": 2.94, "AL": 5.14, "AR": 4.93, "AZ": 6.57, "CA": 5.61,
+    "CO": 5.68, "CT": 4.26, "DC": 4.30, "DE": 4.59, "FL": 5.37,
+    "GA": 5.12, "HI": 5.96, "IA": 4.81, "ID": 5.07, "IL": 4.64,
+    "IN": 4.52, "KS": 5.53, "KY": 4.56, "LA": 5.15, "MA": 4.27,
+    "MD": 4.59, "ME": 4.07, "MI": 4.08, "MN": 4.79, "MO": 4.85,
+    "MS": 5.14, "MT": 5.21, "NC": 4.99, "ND": 5.11, "NE": 5.41,
+    "NH": 4.14, "NJ": 4.60, "NM": 6.77, "NV": 6.41, "NY": 4.18,
+    "OH": 4.23, "OK": 5.36, "OR": 4.23, "PA": 4.48, "RI": 4.38,
+    "SC": 5.21, "SD": 5.32, "TN": 4.86, "TX": 5.46, "UT": 5.99,
+    "VA": 4.71, "VT": 4.09, "WA": 4.17, "WI": 4.55, "WV": 4.27,
+    "WY": 5.64,
+}
+
+# Wind: avg wind speed at 100m hub height m/s (NREL Wind Toolkit)
+STATE_WIND_SPEED = {
+    "AK": 6.8, "AL": 5.9, "AR": 6.1, "AZ": 6.9, "CA": 7.1,
+    "CO": 7.5, "CT": 6.2, "DC": 5.5, "DE": 6.8, "FL": 6.5,
+    "GA": 6.2, "HI": 7.8, "IA": 8.5, "ID": 7.1, "IL": 7.5,
+    "IN": 7.0, "KS": 8.5, "KY": 5.8, "LA": 6.8, "MA": 6.7,
+    "MD": 6.5, "ME": 8.1, "MI": 7.5, "MN": 8.1, "MO": 7.2,
+    "MS": 5.9, "MT": 8.4, "NC": 6.8, "ND": 9.0, "NE": 8.1,
+    "NH": 6.5, "NJ": 7.2, "NM": 7.9, "NV": 7.3, "NY": 6.5,
+    "OH": 6.5, "OK": 8.0, "OR": 7.5, "PA": 6.5, "RI": 7.1,
+    "SC": 6.4, "SD": 8.7, "TN": 5.8, "TX": 8.1, "UT": 7.2,
+    "VA": 7.0, "VT": 6.8, "WA": 7.2, "WI": 7.2, "WV": 7.1,
+    "WY": 9.2,
+}
+
 # ============ CACHING LAYER (24 HOUR TTL) ============
 cache = {}
 
@@ -216,7 +247,7 @@ async def get_market_summary():
         "us_renewable_capacity_gw": round(solar_gw + wind_gw, 1),
         "solar_capacity_gw": solar_gw,
         "wind_capacity_gw": wind_gw,
-        "renewables_pct_of_total": 25.4,
+        "renewables_pct_of_total": round((solar_gw + wind_gw) / 1225 * 100, 1),
         "yoy_growth_pct": 14.2,
         "solar_capacity_history": [],
         "wind_capacity_history": [],
@@ -269,8 +300,8 @@ async def get_state_rankings():
                 "wind_capacity_gw": w_gw,
                 "solar_potential_score": solar_score,
                 "wind_potential_score": wind_score,
-                "avg_irradiance_kwh_m2_day": 4.5,
-                "avg_wind_speed_m_s": 6.5,
+                "avg_irradiance_kwh_m2_day": STATE_IRRADIANCE.get(state_data["state"], 4.5),
+                "avg_wind_speed_m_s": STATE_WIND_SPEED.get(state_data["state"], 6.5),
                 "electricity_rate_cents_kwh": price,
                 "lat": lat,
                 "lon": lon

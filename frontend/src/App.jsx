@@ -7,6 +7,7 @@ import { Line, Bar } from 'react-chartjs-2'
 import * as d3 from 'd3'
 import * as topojson from 'topojson-client'
 import { getMarketSummary, getStateRankings, sendChatMessage, healthCheck } from './api/client'
+import { generateProjectPDF } from './utils/exportPDF'
 import './App.css'
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, BarElement, Title, Tooltip, Legend, Filler)
@@ -160,26 +161,134 @@ const CHART_OPTIONS = {
   },
 }
 
+// ============ DATA PROVENANCE BADGE ============
+function ProvenanceBadge({ source, description, timestamp }) {
+  return (
+    <span className="provenance-badge">
+      ℹ
+      <span className="provenance-tooltip">
+        <strong>Source:</strong> {source}<br />
+        {description}
+        {timestamp && <><br /><strong>Updated:</strong> {timestamp}</>}
+      </span>
+    </span>
+  )
+}
+
+// ============ SENSITIVITY MATRIX ============
+function SensitivityMatrix({ baseParams }) {
+  const [visible, setVisible] = useState(false)
+  const ppaVars = [-30, -20, -10, 0, 10, 20, 30]
+  const cfVars  = [30, 20, 10, 0, -10, -20, -30]
+
+  function irr(cfVar, ppaVar) {
+    return calcLocally({
+      ...baseParams,
+      capacity_factor:    baseParams.capacity_factor    * (1 + cfVar  / 100),
+      ppa_rate_cents_kwh: baseParams.ppa_rate_cents_kwh * (1 + ppaVar / 100),
+    }).irr_pct
+  }
+
+  function cellStyle(v) {
+    if (v < 6)  return { background: '#450a0a', color: '#fca5a5' }
+    if (v < 10) return { background: '#7f1d1d', color: '#fca5a5' }
+    if (v < 14) return { background: '#78350f', color: '#fde68a' }
+    if (v < 18) return { background: '#064e3b', color: '#6ee7b7' }
+    return             { background: '#022c22', color: '#34d399' }
+  }
+
+  return (
+    <div className="sensitivity-section">
+      <button className="sensitivity-toggle-btn" onClick={() => setVisible(v => !v)}>
+        {visible ? '▲ Hide' : '▼ Show'} Sensitivity Analysis
+      </button>
+      {visible && (
+        <div className="sensitivity-body">
+          <p className="sensitivity-desc">
+            IRR % at ±30% variations in PPA rate (columns) and capacity factor (rows).{' '}
+            <strong>Bold border = your current inputs.</strong>
+          </p>
+          <div style={{ overflowX: 'auto' }}>
+            <table className="sensitivity-table">
+              <thead>
+                <tr>
+                  <th className="sens-corner">CF ╲ PPA</th>
+                  {ppaVars.map(v => (
+                    <th key={v} className="sens-col-header"
+                      style={{ color: v === 0 ? '#f1f5f9' : '#94a3b8', fontWeight: v === 0 ? 800 : 500 }}>
+                      {v >= 0 ? '+' : ''}{v}%
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {cfVars.map(cfVar => (
+                  <tr key={cfVar}>
+                    <td className="sens-row-header"
+                      style={{ color: cfVar === 0 ? '#f1f5f9' : '#94a3b8', fontWeight: cfVar === 0 ? 800 : 500 }}>
+                      {cfVar >= 0 ? '+' : ''}{cfVar}%
+                    </td>
+                    {ppaVars.map(ppaVar => {
+                      const v = irr(cfVar, ppaVar)
+                      const isBase = cfVar === 0 && ppaVar === 0
+                      return (
+                        <td key={ppaVar}
+                          className={`sens-cell${isBase ? ' sens-base' : ''}`}
+                          style={cellStyle(v)}
+                          title={`CF ${cfVar >= 0 ? '+' : ''}${cfVar}%, PPA ${ppaVar >= 0 ? '+' : ''}${ppaVar}% → IRR: ${v.toFixed(1)}%`}>
+                          {v.toFixed(1)}%
+                        </td>
+                      )
+                    })}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <div className="sensitivity-legend">
+            {[
+              { label: '< 6%',   bg: '#450a0a', color: '#fca5a5' },
+              { label: '6–10%',  bg: '#7f1d1d', color: '#fca5a5' },
+              { label: '10–14%', bg: '#78350f', color: '#fde68a' },
+              { label: '14–18%', bg: '#064e3b', color: '#6ee7b7' },
+              { label: '> 18%',  bg: '#022c22', color: '#34d399' },
+            ].map(item => (
+              <span key={item.label} className="legend-chip" style={{ background: item.bg, color: item.color }}>
+                {item.label}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ============ TAB 1: MARKET OVERVIEW ============
 function MarketTab() {
   const [market, setMarket] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  const [lastUpdated, setLastUpdated] = useState(null)
+  const [refreshing, setRefreshing] = useState(false)
 
-  useEffect(() => {
-    async function loadMarket() {
-      try {
-        const m = await getMarketSummary()
-        setMarket(m)
-        setError('')
-      } catch (e) {
-        setError('Failed to load market data. Make sure backend is running and API keys are set.')
-      } finally {
-        setLoading(false)
-      }
+  async function loadMarket(isRefresh = false) {
+    if (isRefresh) setRefreshing(true)
+    else setLoading(true)
+    try {
+      const m = await getMarketSummary()
+      setMarket(m)
+      setLastUpdated(new Date())
+      setError('')
+    } catch (e) {
+      setError('Failed to load market data. Make sure backend is running and API keys are set.')
+    } finally {
+      setLoading(false)
+      setRefreshing(false)
     }
-    loadMarket()
-  }, [])
+  }
+
+  useEffect(() => { loadMarket() }, [])
 
   if (error) return <div className="tab-content error"><p>{error}</p></div>
 
@@ -201,27 +310,43 @@ function MarketTab() {
 
   return (
     <div className="tab-content">
-      <h2>Market Overview</h2>
+      <div className="market-tab-header">
+        <h2>Market Overview</h2>
+        <div className="market-refresh-row">
+          {lastUpdated && (
+            <span className="last-updated-text">
+              Last updated: {lastUpdated.toLocaleTimeString()}
+            </span>
+          )}
+          <button
+            className="control-btn"
+            onClick={() => loadMarket(true)}
+            disabled={refreshing}
+          >
+            {refreshing ? '⟳ Refreshing...' : '⟳ Refresh Data'}
+          </button>
+        </div>
+      </div>
 
       {market ? (
         <div className="market-cards">
           <div className="card">
-            <h3>Electricity Price</h3>
+            <h3>Electricity Price <ProvenanceBadge source="EIA API" description="api.eia.gov/v2/electricity/retail-sales — US residential monthly avg" timestamp={lastUpdated?.toLocaleString()} /></h3>
             <p className="big-number">{market.electricity_price_cents_per_kwh?.toFixed(1)}¢</p>
             <p className="label">per kWh (US average)</p>
           </div>
           <div className="card">
-            <h3>Renewable Capacity</h3>
+            <h3>Renewable Capacity <ProvenanceBadge source="EIA API" description="api.eia.gov/v2/electricity/state-electricity-profiles/capability — solar + wind GW" timestamp={lastUpdated?.toLocaleString()} /></h3>
             <p className="big-number">{market.us_renewable_capacity_gw?.toFixed(0)} GW</p>
             <p className="label">{market.renewables_pct_of_total?.toFixed(1)}% of total US</p>
           </div>
           <div className="card">
-            <h3>Solar</h3>
+            <h3>Solar <ProvenanceBadge source="EIA API" description="api.eia.gov — total solar PV installed capacity, annual survey" timestamp={lastUpdated?.toLocaleString()} /></h3>
             <p className="big-number">{market.solar_capacity_gw?.toFixed(0)} GW</p>
             <p className="label">installed capacity</p>
           </div>
           <div className="card">
-            <h3>Wind</h3>
+            <h3>Wind <ProvenanceBadge source="EIA API" description="api.eia.gov — total wind installed capacity, annual survey" timestamp={lastUpdated?.toLocaleString()} /></h3>
             <p className="big-number">{market.wind_capacity_gw?.toFixed(0)} GW</p>
             <p className="label">installed capacity</p>
           </div>
@@ -331,6 +456,9 @@ function CalculatorTab({ onUpdate, geoSelection }) {
   const [itcPct, setItcPct] = useState(0.30)
   const [activeScenario, setActiveScenario] = useState('base')
   const [stateSearch, setStateSearch] = useState('')
+  const [memoVisible, setMemoVisible] = useState(false)
+  const [memoText, setMemoText] = useState('')
+  const [memoLoading, setMemoLoading] = useState(false)
 
   // Sync location + electricity rate when user clicks a state in the Geographic tab
   useEffect(() => {
@@ -362,6 +490,62 @@ function CalculatorTab({ onUpdate, geoSelection }) {
     setPpaRate(s.ppaRate)
     setDebtPct(s.debtPct)
     setInterestRate(s.interestRate)
+  }
+
+  async function generateMemo() {
+    setMemoLoading(true)
+    setMemoVisible(true)
+    setMemoText('')
+    const prompt = `Generate a concise 1-page professional investment memo for this renewable energy project. Use these exact sections with bold headers: **Executive Summary**, **Project Overview**, **Market Context**, **Financial Highlights**, **Key Risks**, **Recommendation**. Be analytical and specific with the numbers provided.
+
+Project Details:
+- Technology: ${type.toUpperCase()} | Location: ${STATE_NAMES[state] || state}
+- Size: ${(sizeKw / 1000).toFixed(1)} MW | Capacity Factor: ${(capFactor * 100).toFixed(1)}%
+- Total CAPEX: $${(result.total_capex_usd / 1000000).toFixed(1)}M | Cost: $${costPerKw}/kW
+- IRR: ${result.irr_pct.toFixed(1)}% | NPV (8% discount): $${(result.npv_usd / 1000000).toFixed(1)}M
+- LCOE: ${result.lcoe_cents_per_kwh.toFixed(1)}¢/kWh | Payback: ${result.payback_years.toFixed(1)} yrs
+- Annual Production: ${(result.annual_production_kwh / 1000000).toFixed(1)}M kWh/yr
+- PPA Rate: ${ppaRate}¢/kWh (${escalationRate}% annual escalation)
+- Financing: ${(debtPct * 100).toFixed(0)}% debt at ${interestRate}% for ${termYears} yrs | ITC: ${(itcPct * 100).toFixed(0)}%
+- Annual Revenue: $${(result.annual_revenue_usd / 1000000).toFixed(2)}M | OpEx: $${(result.annual_opex_usd / 1000000).toFixed(2)}M`
+
+    try {
+      const response = await sendChatMessage(
+        [{ role: 'user', content: prompt }],
+        { type, state, system_size_kw: sizeKw, irr_pct: result.irr_pct }
+      )
+      setMemoText(response.reply || response.error || 'Failed to generate memo.')
+    } catch (e) {
+      setMemoText('Error generating memo: ' + e.message)
+    } finally {
+      setMemoLoading(false)
+    }
+  }
+
+  async function handleExportPDF() {
+    try {
+      await generateProjectPDF(
+        type,
+        state,
+        {
+          ...result,
+          cost_per_kw: costPerKw,
+          om_rate: omRate,
+          ppa_rate_cents_kwh: ppaRate,
+          debt_pct: debtPct,
+          interest_rate_pct: interestRate,
+          term_years: termYears,
+          itc_pct: itcPct,
+          degradation_rate_pct: degradationRate,
+          escalation_rate_pct: escalationRate
+        },
+        activeScenario,
+        memoText
+      )
+    } catch (e) {
+      console.error('PDF export failed:', e)
+      alert('Failed to generate PDF: ' + e.message)
+    }
   }
 
   const cfChartData = {
@@ -630,8 +814,47 @@ function CalculatorTab({ onUpdate, geoSelection }) {
               </div>
             </div>
           </div>
+
+          <div style={{ padding: '0 0 0.5rem' }}>
+            <button className="memo-generate-btn" onClick={generateMemo} disabled={memoLoading}>
+              {memoLoading ? '⏳ Generating Memo...' : '📄 Generate Investment Memo'}
+            </button>
+            <button className="memo-generate-btn" onClick={handleExportPDF} style={{ marginLeft: '0.5rem' }}>
+              📥 Export PDF Report
+            </button>
+          </div>
         </div>
       </div>
+
+      <SensitivityMatrix baseParams={{
+        type, location_state: state, system_size_kw: sizeKw,
+        capacity_factor: capFactor, cost_per_kw: costPerKw,
+        om_cost_per_kw_year: omRate, ppa_rate_cents_kwh: ppaRate,
+        escalation_rate_pct: escalationRate, degradation_rate_pct: degradationRate,
+        debt_pct: debtPct, interest_rate_pct: interestRate,
+        term_years: termYears, itc_pct: itcPct,
+      }} />
+
+      {memoVisible && (
+        <div className="memo-overlay" onClick={e => { if (e.target === e.currentTarget) setMemoVisible(false) }}>
+          <div className="memo-modal">
+            <div className="memo-header">
+              <h3>Investment Memo — {STATE_NAMES[state] || state} {(sizeKw / 1000).toFixed(1)} MW {type.charAt(0).toUpperCase() + type.slice(1)}</h3>
+              <button className="memo-close-btn" onClick={() => setMemoVisible(false)}>✕</button>
+            </div>
+            <div className="memo-body">
+              {memoLoading ? (
+                <div className="memo-loading">
+                  <div className="memo-spinner" />
+                  <p>Generating your investment memo using live market data...</p>
+                </div>
+              ) : (
+                <pre className="memo-text">{memoText}</pre>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
