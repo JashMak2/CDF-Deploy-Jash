@@ -2,265 +2,184 @@
 
 ## What We Built
 
-A 4-tab renewable energy investment dashboard that integrates live public APIs (EIA, NREL) with AI-powered research and financial modeling. The application helps investment analysts evaluate solar and wind project opportunities across the U.S.
+A professional-grade, 4-tab renewable energy investment platform integrating live US government APIs (EIA, NREL) with AI-powered research, full financial modeling, interactive Leaflet map, and Tier 3 features including an investment grading system and portfolio builder. Covers all Tier 1, Tier 2, and Tier 3 requirements.
 
-### Tier 1 Requirements Met
+**Live URL**: https://cdf-deploy-jash.vercel.app
+**Build period**: April 6–12, 2026
 
-- ✅ **Tab 1 (Market Overview)** - Live electricity prices, capacity by fuel, national trends
-- ✅ **Tab 2 (Project Calculator)** - Interactive solar/wind financial model with IRR, NPV, LCOE, cashflow visualization
-- ✅ **Tab 3 (Research Assistant)** - Claude AI with live market data context, cites sources
-- ✅ **Tab 4 (Geographic Map)** - US map with solar irradiance overlays, clickable states
-- ✅ **Cross-Tab Data Flow** - 3+ instances: Map→Calculator (location), Calculator→Market (comparison), Calculator+Market→AI (context)
-- ✅ **Clean Code & Architecture** - Modular components, separate API layer, shared state management
-- ✅ **Planning & Documentation** - Detailed planning doc, architecture overview, README
+---
+
+## Requirements Met
+
+### Tier 1 — Core
+- ✅ **Tab 1 (Market Overview)** — Live EIA electricity prices, solar/wind capacity, 12-month trend chart, top states ranking, data provenance badges on every figure
+- ✅ **Tab 2 (Project Calculator)** — Solar/wind/hybrid financial model with IRR, NPV, LCOE, payback, 25-year cash flow chart; all math runs client-side
+- ✅ **Tab 3 (AI Research)** — Groq (Llama 3.3 70B) with 4 analyst modes, live EIA data injected as context, quick prompts per mode
+- ✅ **Tab 4 (Geographic Map)** — Leaflet tile map (CartoDB Dark), choropleth by renewable capacity, hover tooltips, clickable states, compare mode
+- ✅ **Cross-Tab Data Flow** — Map click → auto-fills Calculator location + PPA rate + enables Grid Parity; Calculator state → AI Research sidebar context
+
+### Tier 2 — Advanced
+- ✅ **Sensitivity Matrix** — 7×7 IRR heatmap across capacity factor × PPA rate variations
+- ✅ **Monte Carlo Simulation** — 2,000 NumPy scenarios, P10/P50/P90 percentiles, probability of hitting target IRR, histogram
+- ✅ **AI Anomaly Detection** — One-click Groq analysis of live EIA market data for investor signals
+- ✅ **AI Investment Memo** — Full 6-section structured memo generated from live project parameters
+- ✅ **AI State Comparison** — Multi-state Groq investment trade-off analysis in Geographic tab
+- ✅ **PDF Export** — Professional project report via jsPDF + html2canvas
+- ✅ **Excel Export** — 25-year financial model spreadsheet via SheetJS
+
+### Tier 3 — Exceptional
+- ✅ **Deal Score Card** — Automated 0–100 investment grade (A through D), updated live on every slider move — IRR (35%), payback (25%), LCOE (20%), resource quality (20%)
+- ✅ **Grid Parity Indicator** — Compares PPA rate vs. live state grid rate; auto-appears via map cross-tab flow
+- ✅ **CO2 / Climate Impact** — Annual CO2 offset, homes powered, cars removed, trees equivalent — all derived from project output
+- ✅ **ROI vs Asset Classes** — Horizontal bar chart comparing project IRR against S&P 500, real estate, high-yield bonds, and 10-year Treasury
+- ✅ **Portfolio Builder** — Add multiple projects, blended CAPEX-weighted IRR, combined NPV/production/CO2 across the portfolio
+- ✅ **Hybrid Mode** — Solar+Wind 50/50 project type — runs both calculations and combines results
 
 ---
 
 ## Tech Stack Justification
 
-| Tech | Choice | Alternative Considered | Why We Chose It |
-|------|--------|------------------------|----|
-| **Frontend** | React 18 + Vite | Vue, Svelte | Largest ecosystem for financial dashboards; Chart.js & Leaflet mature. Vite for instant HMR during development. |
-| **Backend** | Python FastAPI | Node.js Express, Go | Async by default; easier to integrate with Anthropic SDK. Fast startup. |
-| **Maps** | Leaflet.js | Google Maps, Mapbox | Zero API key requirement (uses free OpenStreetMap). Lightweight. |
-| **Charts** | Chart.js | Recharts, Plotly | Responsive, performant for financial data. Easy to style. |
-| **AI** | Anthropic Claude | OpenAI GPT-4 | Free $5 credit; excellent reasoning for financial analysis. |
-| **Deployment** | Vercel (FE) + Render (BE) | Firebase, AWS Amplify | Free tiers; simple GitHub integration; environment variable management. |
-
-### Tech Stack Trade-offs
-
-**Client-Side Calculations**
-- ✅ **Pro**: Instant feedback, no server round-trips, works offline
-- ❌ **Con**: Financial formulas must be verified (no server validation)
-- **Decision**: Acceptable; hackathon prioritizes UX and speed
-
-**Caching Strategy**
-- ✅ **Pro**: Survives API rate limits, consistent UX
-- ❌ **Con**: Data can be stale for fast-moving markets
-- **Decision**: 300s TTL for market data is reasonable balance
-
-**AI Context Size**
-- ✅ **Pro**: AI has full market context + user scenario
-- ❌ **Con**: If data is large, could exceed token limits
-- **Decision**: Compress context to essential metrics only (prices, capacity, user inputs)
+| Tech | Choice | Alternative | Why |
+|---|---|---|---|
+| **Frontend** | React 18 + Vite | Vue, Svelte | Largest ecosystem for financial dashboards; Chart.js + react-leaflet mature; fast HMR |
+| **Backend** | Python FastAPI | Node.js Express | Async by default; NumPy available for Monte Carlo; easy Render deployment |
+| **Maps** | Leaflet + react-leaflet | Google Maps, Mapbox, D3 SVG | Real tile map with zoom/pan; zero API key; free CARTO dark tiles match dark theme |
+| **Charts** | Chart.js | Recharts, Plotly | Responsive, performant; supports bar, line, horizontal bar; easy custom styling |
+| **AI** | Groq (Llama 3.3 70B) | Anthropic Claude, OpenAI GPT-4 | Fast inference; free tier; open model; sufficient reasoning for financial analysis |
+| **PDF Export** | jsPDF + html2canvas | Server-side PDF | Client-side generation — no server dependency, no extra infrastructure |
+| **Excel Export** | SheetJS (xlsx) | csv download | Full workbook with formulas; investors expect .xlsx format |
+| **Deployment** | Vercel + Render | Firebase, AWS Amplify | Free tiers; simple GitHub integration; environment variables built in |
 
 ---
 
 ## Key Architectural Decisions
 
-### 1. Shared App State (React Context)
+### 1. Client-Side Financial Calculations
 
-```
-App → (provides state) → All Tabs
-```
+All IRR/NPV/LCOE math runs in the browser on every render with zero server roundtrip. This was the single best decision — sliders feel instant, no loading spinners, no API dependency for the core feature.
 
-**Why**: Simpler than Redux for a single-page app. Tabs need synchronized state (calculator results visible in market comparison, AI context, etc.).
+**Trade-off**: Formulas can't be validated server-side. Acceptable for hackathon; production would add server validation.
 
-**Alternative**: URL query params (would lose state on refresh) or Redux (overkill).
+### 2. Leaflet over D3 SVG Choropleth
 
-### 2. Backend Caching Layer
+The original implementation used D3 SVG rendering (no real tiles). Replaced with Leaflet + react-leaflet mid-build to satisfy the map requirement clearly — real tile layer, zoom/pan, and a library the rubric names explicitly.
 
-**Why**: EIA and NREL APIs have rate limits. Caching ensures robustness and fast response.
+**Trade-off**: Slightly larger bundle. Fully worth it — the dark CARTO tiles look dramatically better and zooming/panning is expected behavior.
 
-**Implementation**: In-memory cache with TTL (Python dict + timers). For production, would upgrade to Redis.
+### 3. 24-Hour Backend Cache
 
-### 3. Instant Financial Calculations (Client-Side)
+EIA capacity data is annual, prices change monthly. 24h TTL avoids rate-limit pressure during the hackathon demo period while keeping data current enough for investment decisions.
 
-**Why**: Financial formulas are deterministic and visible. No server validation needed for hackathon.
+**Trade-off**: Could serve stale data. For production: Redis with shorter TTL + cache invalidation.
 
-**Security Note**: For production, would add server-side validation of user inputs.
+### 4. Single App.jsx File
 
-### 4. Claude as Research Assistant
+All components live in one file rather than separate component files. This was a pragmatic choice under time pressure — zero import/export overhead, easy to read the whole app at once.
 
-**Why**: Claude excels at reasoning over structured data. Prompt includes market data snapshot + user's calculator scenario.
+**Trade-off**: File grows large. For production: split into components/, hooks/, utils/.
 
-**Prompt Strategy**:
-- Few-shot examples of good energy analysis
-- Explicit instruction to cite API sources
-- Temperature: 0.7 (balanced between precision and creativity)
+### 5. Groq for AI Inference
 
-### 5. Cross-Tab Data Flow
+Switched from a slower provider to Groq mid-build. Llama 3.3 70B via Groq is fast enough that the AI responses feel live rather than making users wait. The system prompt injects live EIA data on every request so the model always works with current numbers.
 
-**Design Decision**: Tabs share state instead of being isolated.
+### 6. Cross-Tab via React Props (Not Context)
 
-**Benefits**:
-- Map click → Calculator pre-fill (realistic workflow)
-- Calculator results → Market comparison (context-aware)
-- Combined state → AI (richer analysis)
-
-**Risk**: If state gets too complex, hard to debug. Mitigated with clear actions and logging.
-
----
-
-## API Integration Details
-
-### EIA Open Data
-- **Used for**: Electricity prices, capacity by state, fuel mix
-- **Challenge**: Large response sizes (all 50 states + historical data)
-- **Solution**: Parse only needed states, cache in backend, last 12 months only
-
-### NREL PVWatts
-- **Used for**: Solar production estimate given location + system size
-- **Challenge**: Slow API (can take 2-3s per request)
-- **Solution**: Show loading spinner, cache results by location
-
-### OpenEI Utility Rates
-- **Used for**: Electricity rates by zip code
-- **Challenge**: Sparse data (not all zips have rates)
-- **Solution**: Fallback to state average if zip not found
-
-### Anthropic Claude
-- **Used for**: AI research assistant
-- **Challenge**: Streaming responses can be slow
-- **Solution**: Show streaming text, loading indicator
-- **Cost**: ~200 requests × ~1000 tokens = ~$0.30/day (well under $10 free credits)
-
----
-
-## AI Integration Specifics
-
-### Prompt Design
-
-The AI receives context:
-```
-{
-  "market_data": {
-    "national_avg_electricity_price": 0.145,
-    "total_solar_capacity_mw": 153000,
-    "total_wind_capacity_mw": 145000,
-    "top_solar_states": [...]
-  },
-  "user_scenario": {
-    "project_type": "solar",
-    "size_kw": 50,
-    "location": "California",
-    "irr": 0.088,
-    "npv": 145000,
-    "lcoe": 0.0673
-  }
-}
-```
-
-Then ask: **"Based on the market data and the user's solar project scenario, what should they know?"**
-
-### Why This Approach
-
-- ✅ AI is grounded in actual data (no hallucinations)
-- ✅ Users see where numbers come from
-- ✅ Competitive advantage over generic chatbots
-
-### AI Limitations
-
-- ❌ Cannot search current news (uses training data + our context)
-- ❌ May over-generalize from limited data
-- **Mitigated**: Explicit instruction to cite sources, show confidence ("Based on current data...")
+State flows through App.jsx as props rather than React Context or Redux. Simple and traceable — you can follow the data from map click to calculator to AI sidebar by reading App.jsx top-to-bottom.
 
 ---
 
 ## What Worked Well
 
-1. **React + Vite setup** - Hot reload made rapid iteration smooth
-2. **FastAPI** - Async made juggling multiple API calls easy
-3. **Client-side calculations** - Users immediately see IRR/NPV/LCOE as they adjust inputs
-4. **Public APIs** - EIA + NREL have excellent free tiers
-5. **Claude context management** - Simple JSON context approach scales well
-6. **Git commits** - Frequent commits made progress trackable
+1. **Client-side calculations** — The zero-latency feedback on sliders was the right call from day one
+2. **Groq inference speed** — AI responses feel fast enough to be part of the workflow
+3. **EIA + NREL APIs** — Reliable, well-documented, free; production-grade data for a hackathon
+4. **Leaflet + react-leaflet** — Drop-in React integration, looks great with dark tiles
+5. **Deal Score Card concept** — Synthesizes all metrics into one actionable number; the best single feature added
+6. **Cross-tab data flow** — When the map click auto-fills the calculator and triggers grid parity, the "aha moment" is immediate and clear
+7. **Monte Carlo via NumPy** — The backend simulation is fast and the P10/P50/P90 output is genuinely useful for investors
 
 ---
 
 ## What Was Challenging
 
-1. **API Rate Limits** - Had to implement caching layer even for hackathon
-2. **Financial Formulas** - IRR requires Newton-Raphson iteration; had to be careful with edge cases
-3. **Map Data** - US state boundaries + overlay data requires large JSON; optimized with TopoJSON
-4. **AI Response Quality** - Early versions too generic; improved with specific prompt engineering
-5. **Cross-Tab Responsibility** - Clear when Calculator updates should trigger Market refresh (kept separate)
+1. **Map library decision** — D3 SVG choropleth was built first, then replaced mid-build with Leaflet. Cost ~2 hours but was the right call.
+
+2. **react-leaflet version conflict** — react-leaflet v5 requires React 19; had to pin to v4 for React 18 compatibility.
+
+3. **GeoJSON state matching** — Leaflet GeoJSON uses full state names (`feature.properties.name`), not FIPS codes or abbreviations. Required building a name→abbreviation lookup from the existing `STATE_NAMES` constant.
+
+4. **Monte Carlo performance** — Running 2,000 simulations in Python with NumPy is fast, but early attempts at client-side JS simulation were too slow. Moving to the backend was the right call.
+
+5. **Financial formula edge cases** — IRR approximation breaks down near 0% equity or degenerate cash flows. Added clamping and max/min guards to handle edge cases gracefully.
+
+6. **AI context injection** — Getting the Groq system prompt to reliably use the injected EIA data (not just training data) required explicit framing: "The following is LIVE data from the EIA API, current as of today. Use ONLY these numbers."
 
 ---
 
 ## Decisions Made Under Time Pressure
 
 | Decision | Rationale | Trade-off |
-|----------|-----------|-----------|
-| Leaflet instead of custom map | Good free tiles, less code | Less customization |
-| In-memory cache instead of Redis | Simpler, no external dependency | Won't persist across server restarts |
-| No user authentication | Out of scope, adds complexity | Can't save scenarios |
-| Client-side calculations only | Instant feedback, simple | No server validation |
-| Single AI model (Claude) | Free credits, time constraint | Could compare GPT-4 differently |
-| Tab 4 state selector UI | Time pressure | Could be more sophisticated map interaction |
+|---|---|---|
+| Single App.jsx file | No time spent on file organization | Large file; manageable for this scope |
+| In-memory cache (not Redis) | No external dependency to set up | Won't persist across server restarts |
+| IRR as approximation | Newton-Raphson full implementation is complex | Slightly less precise; directionally correct |
+| No user authentication | Out of scope for hackathon | Can't save scenarios between sessions |
+| Static NREL irradiance table | NREL API rate limit is 100/day | Real-time irradiance per city not available at scale |
+| Portfolio state session-only | No backend persistence needed for demo | Portfolio resets on page refresh |
 
 ---
 
-## What We'd Do Differently (Post-Hackathon)
+## What We'd Do Differently in Production
 
-1. **Add database** - Store scenarios, user calculations, export history
-2. **Add authentication** - User accounts, scenario sharing
-3. **Upgrade caching** - Redis instead of in-memory
-4. **Add tests** - Unit tests for financial formulas, e2e for cross-tab flow
-5. **Real-time data** - WebSocket updates for prices
-6. **Sensitivity analysis** - Heat maps of IRR vs. capacity factor
-7. **PDF export** - Professional investment summary reports
+1. **Split App.jsx into components** — MarketTab, CalculatorTab, etc. as separate files
+2. **Add a database** — Persist scenarios, portfolio, saved research notes across sessions
+3. **Add authentication** — User accounts, saved portfolios, scenario sharing
+4. **Upgrade cache to Redis** — Shorter TTL with invalidation instead of 24h hard expiry
+5. **Add comprehensive tests** — Unit tests for `calcLocally()`, integration tests for cross-tab flow
+6. **Real-time data via WebSocket** — Live electricity price ticker on Tab 1
+7. **Full NREL PVWatts integration** — Per-location irradiance calls instead of static state table
 
 ---
 
-## AI Tools Used
+## AI Tools Used During Development
 
 | Tool | Purpose | Impact |
-|------|---------|--------|
-| **Claude (this conversation)** | Code generation, debugging, architecture | High - Accelerated component building, fixed financial formula bugs |
-| **ChatGPT** | Researching API docs, financial formulas | Medium - Helped understand PVWatts parameters |
-| **GitHub Copilot** | In-editor autocompletion | Medium - Reduced typing, caught some bugs |
-| **Cursor/Claude Code** | File reading, refactoring, git integration | High - Streamlined workflow, reduced context switching |
-
-**Total Development Time**: ~10-12 hours (April 7 full day)
+|---|---|---|
+| **Claude Code** | Code generation, debugging, architecture, git | High — built every feature, fixed every bug |
+| **GitHub Copilot** | In-editor autocompletion | Medium — reduced typing in boilerplate sections |
 
 ---
 
 ## Lessons Learned
 
-1. **Planning pays off** - Having architecture doc saved hours of refactoring
-2. **Free APIs are reliable** - EIA + NREL are production-grade
-3. **Client-side calculations rule** - No server latency = happy users
-4. **AI excels at reasoning** - Claude's analysis of projects was insightful
-5. **Cross-tab data flow is hard** - Worth planning upfront, not bolting on later
-6. **Commit history tells a story** - Made debugging and reviewing progress clear
+1. **Map library matters** — D3 SVG is powerful but Leaflet is what judges picture when they read "interactive map"
+2. **Client-side math is the right call** — Zero latency on the calculator was the feature that made the demo feel live
+3. **Tier 3 is about synthesis** — The Deal Score Card doesn't add new data; it synthesizes existing data into a decision. That's what impressed most.
+4. **Cross-tab flow needs to be visible** — The "📍 from map" badge and the Grid Parity row appearing only after a map click made the cross-tab connection obvious to any observer
+5. **AI works best with structured context** — Injecting a clean JSON snapshot of live EIA data into the system prompt produced far better answers than free-form prompting
+6. **Commit history tells a story** — Organizing commits by tier (Tier 1, Tier 2, Tier 3) made progress traceable for judges reviewing the repo
 
 ---
 
-## How We Think About Production Readiness
+## Production Readiness Assessment
 
-**Hackathon (Current)**:
+**Current (hackathon):**
 - ✅ Works end-to-end on desktop
-- ✅ Handles happy path well
-- ⚠️ Minimal error handling (API failures show alerts)
-- ⚠️ No input validation on calculator
-- ⚠️ No HTTPS enforcement, limited logging
+- ✅ Handles all happy paths across all 4 tabs
+- ✅ Graceful degradation when APIs are slow
+- ⚠️ No user authentication
+- ⚠️ Session-only state (portfolio resets on refresh)
+- ⚠️ No input validation server-side
 
-**Production (Next Steps)**:
-- [ ] Add comprehensive error handling
-- [ ] Validate all inputs server-side
-- [ ] Add authentication & RBAC
-- [ ] HTTPS + CORS security audit
-- [ ] Database for state persistence
-- [ ] Monitoring & alerting
-- [ ] Load testing
-
----
-
-## Final Thoughts
-
-This hackathon taught us that production-grade applications are built by:
-
-1. **Clear architecture first** - Spending time planning saved chaos later
-2. **User-focused features** - Client-side calculations beat perfect server design
-3. **Pragmatic choices** - Leaflet + in-memory cache > building from scratch
-4. **AI as a tool** - Claude accelerated both coding and analysis
-5. **Incremental delivery** - Tier 1 complete + polished > incomplete Tier 2
-
-**We built a real product that investors could use.**
+**Production next steps:**
+- Database for persistence (scenarios, portfolio, research notes)
+- Authentication + user accounts
+- Server-side input validation
+- Monitoring + alerting on API health
+- Load testing on Monte Carlo endpoint
+- Mobile-responsive layout improvements
 
 ---
 
-**Built with ❤️ and Claude**
-
+**Built for the CDF AI Engineering Hackathon, April 2026**
 *Deadline: April 12, 2026 at 1:00 PM EST*
