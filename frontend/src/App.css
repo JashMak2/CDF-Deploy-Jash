@@ -2167,3 +2167,15 @@ select:focus {
 .mc-range-row strong {
   color: var(--text-primary);
 }
+
+.map-tooltip {
+  background: #1e293b;
+  border: 1px solid rgba(59,130,246,0.4);
+  color: #f1f5f9;
+  font-size: 0.82rem;
+  line-height: 1.6;
+  border-radius: 6px;
+  padding: 6px 10px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+}
+.map-tooltip::before { display: none; }

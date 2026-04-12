@@ -6,6 +6,7 @@ import {
 import { Line, Bar } from 'react-chartjs-2'
 import * as d3 from 'd3'
 import * as topojson from 'topojson-client'
+import { MapContainer, TileLayer, GeoJSON } from 'react-leaflet'
 import { getMarketSummary, getStateRankings, sendChatMessage, healthCheck, runMonteCarlo } from './api/client'
 import { generateProjectPDF } from './utils/exportPDF'
 import { generateProjectExcel } from './utils/exportExcel'
@@ -141,6 +142,30 @@ function calcLocally({
     payback_years: Math.round(paybackYears * 10) / 10,
     project_life_years: projectLife,
     cash_flows: cashFlows,
+  }
+}
+
+function combineResults(a, b) {
+  return {
+    type: 'hybrid',
+    state: a.state,
+    system_size_kw: a.system_size_kw + b.system_size_kw,
+    capacity_factor: (a.capacity_factor + b.capacity_factor) / 2,
+    annual_production_kwh: a.annual_production_kwh + b.annual_production_kwh,
+    total_capex_usd: a.total_capex_usd + b.total_capex_usd,
+    debt_usd: a.debt_usd + b.debt_usd,
+    equity_usd: a.equity_usd + b.equity_usd,
+    itc_benefit_usd: a.itc_benefit_usd + b.itc_benefit_usd,
+    annual_revenue_usd: a.annual_revenue_usd + b.annual_revenue_usd,
+    annual_opex_usd: a.annual_opex_usd + b.annual_opex_usd,
+    annual_debt_service_usd: a.annual_debt_service_usd + b.annual_debt_service_usd,
+    annual_net_cash_flow_usd: a.annual_net_cash_flow_usd + b.annual_net_cash_flow_usd,
+    irr_pct: (a.irr_pct + b.irr_pct) / 2,
+    npv_usd: a.npv_usd + b.npv_usd,
+    lcoe_cents_per_kwh: (a.lcoe_cents_per_kwh + b.lcoe_cents_per_kwh) / 2,
+    payback_years: (a.payback_years + b.payback_years) / 2,
+    project_life_years: a.project_life_years,
+    cash_flows: a.cash_flows.map((cf, i) => ({ year: cf.year, cf: cf.cf + b.cash_flows[i].cf })),
   }
 }
 
@@ -627,6 +652,176 @@ function MonteCarloPanel({ baseParams }) {
   )
 }
 
+// ============ DEAL SCORE CARD ============
+function DealScoreCard({ result, capFactor, stateRate, ppaRate }) {
+  function scoreIRR(irr) {
+    if (irr >= 15) return 100
+    if (irr >= 10) return 75
+    if (irr >= 7)  return 50
+    return 20
+  }
+  function scorePayback(pb) {
+    if (pb <= 8)  return 100
+    if (pb <= 12) return 70
+    if (pb <= 16) return 40
+    return 10
+  }
+  function scoreLCOE(lcoe) {
+    if (lcoe <= 4) return 100
+    if (lcoe <= 6) return 75
+    if (lcoe <= 9) return 50
+    return 20
+  }
+  function scoreResource(cf) {
+    if (cf >= 0.30) return 90
+    if (cf >= 0.25) return 75
+    if (cf >= 0.20) return 60
+    if (cf >= 0.15) return 45
+    return 25
+  }
+
+  const irrScore      = scoreIRR(result.irr_pct)
+  const paybackScore  = scorePayback(result.payback_years)
+  const lcoeScore     = scoreLCOE(result.lcoe_cents_per_kwh)
+  const resourceScore = scoreResource(capFactor)
+  const totalScore    = Math.round(irrScore * 0.35 + paybackScore * 0.25 + lcoeScore * 0.20 + resourceScore * 0.20)
+
+  function getGrade(s) {
+    if (s >= 85) return { grade: 'A',  color: '#10b981' }
+    if (s >= 75) return { grade: 'A−', color: '#34d399' }
+    if (s >= 65) return { grade: 'B+', color: '#6ee7b7' }
+    if (s >= 55) return { grade: 'B',  color: '#f59e0b' }
+    if (s >= 45) return { grade: 'C',  color: '#fb923c' }
+    return        { grade: 'D',  color: '#ef4444' }
+  }
+  const { grade, color } = getGrade(totalScore)
+
+  const factors = [
+    { label: 'IRR',      value: `${result.irr_pct?.toFixed(1)}%`,              score: irrScore },
+    { label: 'Payback',  value: `${result.payback_years?.toFixed(1)} yrs`,      score: paybackScore },
+    { label: 'LCOE',     value: `${result.lcoe_cents_per_kwh?.toFixed(1)}¢/kWh`, score: lcoeScore },
+    { label: 'Resource', value: `${(capFactor * 100).toFixed(0)}% CF`,          score: resourceScore },
+  ]
+
+  const gridParity = stateRate != null ? stateRate - ppaRate : null
+
+  return (
+    <div style={{ background: 'rgba(30,41,59,0.85)', borderRadius: '12px', padding: '1.25rem 1.5rem', border: `1px solid ${color}55`, marginBottom: '1.5rem', display: 'flex', gap: '1.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
+      <div style={{ textAlign: 'center', minWidth: '88px' }}>
+        <p style={{ fontSize: '0.7rem', color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: '0.2rem' }}>Investment Grade</p>
+        <p style={{ fontSize: '3rem', fontWeight: 800, color, lineHeight: 1 }}>{grade}</p>
+        <p style={{ fontSize: '0.85rem', color: '#94a3b8', marginTop: '0.2rem' }}>{totalScore} / 100</p>
+      </div>
+
+      <div style={{ width: '1px', alignSelf: 'stretch', background: 'rgba(71,85,105,0.5)', flexShrink: 0 }} />
+
+      <div style={{ flex: 1, display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(190px, 1fr))', gap: '0.4rem 1rem' }}>
+        {factors.map(f => {
+          const icon = f.score >= 75 ? '✅' : f.score >= 50 ? '⚠️' : '❌'
+          const fc   = f.score >= 75 ? '#10b981' : f.score >= 50 ? '#f59e0b' : '#ef4444'
+          return (
+            <div key={f.label} style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.85rem' }}>
+              <span>{icon}</span>
+              <span style={{ color: '#94a3b8' }}>{f.label}:</span>
+              <span style={{ color: fc, fontWeight: 600 }}>{f.value}</span>
+            </div>
+          )
+        })}
+        {gridParity != null && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.85rem', gridColumn: '1 / -1' }}>
+            <span>{gridParity >= 0 ? '✅' : '⚠️'}</span>
+            <span style={{ color: '#94a3b8' }}>Grid Parity:</span>
+            <span style={{ color: gridParity >= 0 ? '#10b981' : '#f59e0b', fontWeight: 600 }}>
+              {gridParity >= 0
+                ? `${gridParity.toFixed(1)}¢ below grid rate — strong offtake position`
+                : `${Math.abs(gridParity).toFixed(1)}¢ above grid rate — verify offtake`}
+            </span>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// ============ PORTFOLIO PANEL ============
+function PortfolioPanel({ portfolio, onRemove }) {
+  if (portfolio.length === 0) return null
+
+  const totalCapex = portfolio.reduce((s, p) => s + p.capex, 0)
+  const totalNpv = portfolio.reduce((s, p) => s + p.npv, 0)
+  const totalProduction = portfolio.reduce((s, p) => s + p.production, 0)
+  const totalCo2Kg = portfolio.reduce((s, p) => s + p.co2Kg, 0)
+  const blendedIrr = portfolio.reduce((s, p) => s + p.irr * p.capex, 0) / totalCapex
+
+  return (
+    <div style={{ marginTop: '2rem', background: 'rgba(30,41,59,0.7)', borderRadius: '12px', padding: '1.5rem', border: '1px solid rgba(59,130,246,0.25)' }}>
+      <h3 style={{ marginBottom: '1.25rem', color: '#f1f5f9' }}>
+        💼 Investment Portfolio
+        <span style={{ fontSize: '0.85rem', color: '#94a3b8', fontWeight: 400, marginLeft: '0.5rem' }}>
+          {portfolio.length} project{portfolio.length !== 1 ? 's' : ''}
+        </span>
+      </h3>
+
+      <div className="results-grid" style={{ marginBottom: '1.5rem' }}>
+        <div className="result-box highlighted">
+          <p className="label">Blended IRR</p>
+          <p className="big-number">{blendedIrr.toFixed(1)}%</p>
+          <p className="help-text">CAPEX-weighted avg</p>
+        </div>
+        <div className="result-box">
+          <p className="label">Total CAPEX</p>
+          <p className="number">${(totalCapex / 1e6).toFixed(1)}M</p>
+        </div>
+        <div className="result-box">
+          <p className="label">Combined NPV</p>
+          <p className="number">${(totalNpv / 1e6).toFixed(1)}M</p>
+        </div>
+        <div className="result-box">
+          <p className="label">Total Production</p>
+          <p className="number">{(totalProduction / 1e6).toFixed(1)}M kWh/yr</p>
+        </div>
+        <div className="result-box">
+          <p className="label">CO₂ Offset</p>
+          <p className="number">{(totalCo2Kg / 1000).toFixed(0)}t/yr</p>
+        </div>
+        <div className="result-box">
+          <p className="label">Homes Powered</p>
+          <p className="number">{Math.round(totalProduction / 10649).toLocaleString()}</p>
+        </div>
+      </div>
+
+      <div style={{ overflowX: 'auto' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
+          <thead>
+            <tr style={{ borderBottom: '1px solid rgba(71,85,105,0.5)' }}>
+              {['Project', 'Size', 'IRR', 'CAPEX', 'NPV', 'CO₂/yr', ''].map(h => (
+                <th key={h} style={{ textAlign: h === 'Project' ? 'left' : 'right', padding: '0.5rem 0.75rem', color: '#94a3b8', fontWeight: 500 }}>{h}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {portfolio.map(p => (
+              <tr key={p.id} style={{ borderBottom: '1px solid rgba(71,85,105,0.2)' }}>
+                <td style={{ padding: '0.6rem 0.75rem', color: '#f1f5f9' }}>
+                  {p.type === 'solar' ? '☀️' : p.type === 'wind' ? '🌬️' : '☀️🌬️'} {STATE_NAMES[p.state] || p.state}
+                </td>
+                <td style={{ textAlign: 'right', padding: '0.6rem 0.75rem', color: '#cbd5e1' }}>{(p.sizeKw / 1000).toFixed(1)} MW</td>
+                <td style={{ textAlign: 'right', padding: '0.6rem 0.75rem', fontWeight: 600, color: p.irr >= 10 ? '#10b981' : p.irr >= 7 ? '#f59e0b' : '#ef4444' }}>{p.irr.toFixed(1)}%</td>
+                <td style={{ textAlign: 'right', padding: '0.6rem 0.75rem', color: '#cbd5e1' }}>${(p.capex / 1e6).toFixed(1)}M</td>
+                <td style={{ textAlign: 'right', padding: '0.6rem 0.75rem', color: p.npv >= 0 ? '#10b981' : '#ef4444' }}>${(p.npv / 1e6).toFixed(1)}M</td>
+                <td style={{ textAlign: 'right', padding: '0.6rem 0.75rem', color: '#94a3b8' }}>{(p.co2Kg / 1000).toFixed(0)}t</td>
+                <td style={{ textAlign: 'right', padding: '0.6rem 0.75rem' }}>
+                  <button onClick={() => onRemove(p.id)} style={{ background: 'none', border: 'none', color: '#ef4444', cursor: 'pointer', fontSize: '1rem', lineHeight: 1 }}>✕</button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  )
+}
+
 // ============ TAB 2: PROJECT CALCULATOR (fully client-side math) ============
 function CalculatorTab({ onUpdate, geoSelection }) {
   const [type, setType] = useState('solar')
@@ -647,23 +842,34 @@ function CalculatorTab({ onUpdate, geoSelection }) {
   const [memoVisible, setMemoVisible] = useState(false)
   const [memoText, setMemoText] = useState('')
   const [memoLoading, setMemoLoading] = useState(false)
+  const [portfolio, setPortfolio] = useState([])
+  const [stateRate, setStateRate] = useState(null)
 
   // Sync location + electricity rate when user clicks a state in the Geographic tab
   useEffect(() => {
     if (!geoSelection?.state) return
     setState(geoSelection.state)
-    if (geoSelection.rate) setPpaRate(Math.round(geoSelection.rate * 10) / 10)
+    if (geoSelection.rate) {
+      setPpaRate(Math.round(geoSelection.rate * 10) / 10)
+      setStateRate(geoSelection.rate)
+    }
   }, [geoSelection])
 
   // All math runs synchronously client-side on every render — no server roundtrip
-  const result = calcLocally({
+  const calcParams = {
     type, location_state: state, system_size_kw: sizeKw,
     capacity_factor: capFactor, cost_per_kw: costPerKw,
     om_cost_per_kw_year: omRate, ppa_rate_cents_kwh: ppaRate,
     escalation_rate_pct: escalationRate, degradation_rate_pct: degradationRate,
     debt_pct: debtPct, interest_rate_pct: interestRate,
     term_years: termYears, itc_pct: itcPct,
-  })
+  }
+  const result = type === 'hybrid'
+    ? combineResults(
+        calcLocally({ ...calcParams, type: 'solar', system_size_kw: sizeKw / 2 }),
+        calcLocally({ ...calcParams, type: 'wind', system_size_kw: sizeKw / 2 })
+      )
+    : calcLocally(calcParams)
 
   // Propagate to parent for AI tab context
   useEffect(() => {
@@ -770,10 +976,39 @@ Project Details:
     }],
   }
 
+  // CO2 + impact equivalencies (US grid avg: 0.386 kg CO2/kWh)
+  const co2KgPerYear = Math.round(result.annual_production_kwh * 0.386)
+  const treesEquiv = Math.round(co2KgPerYear / 21.77)
+  const carsEquiv = Math.round(co2KgPerYear / 4600)
+  const homesEquiv = Math.round(result.annual_production_kwh / 10649)
+
+  // ROI benchmark chart data
+  const roiBenchmarkData = {
+    labels: ['This Project', 'S&P 500 (hist.)', 'Real Estate', 'High-Yield Bonds', '10-yr Treasury'],
+    datasets: [{
+      label: 'Annual Return (%)',
+      data: [result.irr_pct, 10.0, 7.0, 8.0, 4.5],
+      backgroundColor: [result.irr_pct >= 8 ? '#10b981' : '#f59e0b', '#3b82f6', '#8b5cf6', '#f59e0b', '#64748b'],
+      borderRadius: 4,
+    }]
+  }
+
+  function addToPortfolio() {
+    setPortfolio(prev => [...prev, {
+      id: Date.now(),
+      type, state, sizeKw,
+      irr: result.irr_pct,
+      npv: result.npv_usd,
+      capex: result.total_capex_usd,
+      production: result.annual_production_kwh,
+      co2Kg: Math.round(result.annual_production_kwh * 0.386),
+    }])
+  }
+
   return (
     <div className="tab-content">
       <h2>Project Economics Calculator</h2>
-      <p className="subtitle-text">Model a solar or wind project — all calculations run instantly in your browser</p>
+      <p className="subtitle-text">Model a solar, wind, or hybrid project — all calculations run instantly in your browser</p>
 
       <div className="scenario-bar">
         <span className="scenario-label">Scenario:</span>
@@ -788,6 +1023,8 @@ Project Details:
         ))}
       </div>
 
+      <DealScoreCard result={result} capFactor={capFactor} stateRate={stateRate} ppaRate={ppaRate} />
+
       <div className="calc-layout">
         <div className="calc-inputs">
           <h3>🏗️ Project Setup</h3>
@@ -795,10 +1032,11 @@ Project Details:
           <div className="input-section">
             <div className="input-group">
               <label>Technology Type</label>
-              <p className="help-text">Choose between solar PV and wind turbines</p>
+              <p className="help-text">Choose between solar PV, wind turbines, or a 50/50 hybrid</p>
               <select value={type} onChange={e => setType(e.target.value)}>
                 <option value="solar">☀️ Solar PV</option>
                 <option value="wind">🌬️ Wind Turbine</option>
+                <option value="hybrid">☀️🌬️ Hybrid (Solar + Wind)</option>
               </select>
             </div>
 
@@ -1026,6 +1264,53 @@ Project Details:
             </div>
           </div>
 
+          <div className="result-section">
+            <h4 className="result-heading">🌱 Climate Impact (Annual)</h4>
+            <div className="results-grid">
+              <div className="result-box">
+                <p className="label">CO₂ Offset</p>
+                <p className="number">{(co2KgPerYear / 1000).toFixed(0)}t</p>
+                <p className="help-text">tonnes per year</p>
+              </div>
+              <div className="result-box">
+                <p className="label">Homes Powered</p>
+                <p className="number">{homesEquiv.toLocaleString()}</p>
+                <p className="help-text">US avg households</p>
+              </div>
+              <div className="result-box">
+                <p className="label">Cars Removed</p>
+                <p className="number">{carsEquiv.toLocaleString()}</p>
+                <p className="help-text">equivalent vehicles/yr</p>
+              </div>
+              <div className="result-box">
+                <p className="label">Trees Equivalent</p>
+                <p className="number">{treesEquiv.toLocaleString()}</p>
+                <p className="help-text">trees planted/yr</p>
+              </div>
+            </div>
+          </div>
+
+          <div className="result-section">
+            <h4 className="result-heading">📊 ROI vs. Other Asset Classes</h4>
+            <div style={{ height: '175px' }}>
+              <Bar
+                data={roiBenchmarkData}
+                options={{
+                  ...CHART_OPTIONS,
+                  indexAxis: 'y',
+                  plugins: {
+                    legend: { display: false },
+                    tooltip: { callbacks: { label: ctx => `${ctx.parsed.x.toFixed(1)}%` } }
+                  },
+                  scales: {
+                    x: { ...CHART_OPTIONS.scales.x, title: { display: true, text: 'Annual Return (%)', color: '#94a3b8' } },
+                    y: { ...CHART_OPTIONS.scales.y },
+                  }
+                }}
+              />
+            </div>
+          </div>
+
           <div className="action-btn-row">
             <button className="memo-generate-btn" onClick={generateMemo} disabled={memoLoading}>
               {memoLoading ? '✍️ Generating Memo...' : '📝 Generate Investment Memo'}
@@ -1035,6 +1320,9 @@ Project Details:
             </button>
             <button className="memo-generate-btn" onClick={handleExportExcel}>
               📊 Export Excel Model
+            </button>
+            <button className="memo-generate-btn" onClick={addToPortfolio}>
+              ➕ Add to Portfolio
             </button>
           </div>
         </div>
@@ -1057,6 +1345,8 @@ Project Details:
         debt_pct: debtPct, interest_rate_pct: interestRate,
         term_years: termYears, itc_pct: itcPct,
       }} />
+
+      <PortfolioPanel portfolio={portfolio} onRemove={id => setPortfolio(prev => prev.filter(p => p.id !== id))} />
 
       {memoVisible && (
         <div className="memo-overlay" onClick={e => { if (e.target === e.currentTarget) setMemoVisible(false) }}>
@@ -1356,88 +1646,77 @@ function AITab({ calculatorState, onUpdate }) {
   )
 }
 
-// ============ D3 CHOROPLETH MAP ============
+// ============ LEAFLET CHOROPLETH MAP ============
 function USMap({ allStates, selectedState, onSelectState }) {
-  const svgRef = useRef(null)
-  const [usData, setUsData] = useState(null)
+  const [geoData, setGeoData] = useState(null)
 
   useEffect(() => {
-    fetch('https://cdn.jsdelivr.net/npm/us-atlas@3/states-10m.json')
+    fetch('https://raw.githubusercontent.com/PublicaMundi/MappingAPI/master/data/geojson/us-states.json')
       .then(r => r.json())
-      .then(setUsData)
-      .catch(e => console.error('Map data fetch failed:', e))
+      .then(setGeoData)
+      .catch(e => console.error('Map GeoJSON fetch failed:', e))
   }, [])
 
-  useEffect(() => {
-    if (!usData || !svgRef.current || allStates.length === 0) return
+  const nameToAbbr = Object.fromEntries(Object.entries(STATE_NAMES).map(([abbr, name]) => [name, abbr]))
+  const stateByAbbr = {}
+  allStates.forEach(s => { stateByAbbr[s.state] = s })
+  const maxCap = d3.max(allStates, s => (s.solar_capacity_gw || 0) + (s.wind_capacity_gw || 0)) || 1
 
-    const W = 960, H = 500
-    const svg = d3.select(svgRef.current)
-    svg.selectAll('*').remove()
-    svg.attr('viewBox', `0 0 ${W} ${H}`)
+  function getColor(cap) {
+    return d3.interpolateYlOrRd(cap / maxCap)
+  }
 
-    const stateFeatures = topojson.feature(usData, usData.objects.states)
-    const projection = d3.geoAlbersUsa().fitSize([W - 20, H - 40], stateFeatures)
-    const path = d3.geoPath().projection(projection)
+  function styleFeature(feature) {
+    const abbr = nameToAbbr[feature.properties.name]
+    const s = abbr ? stateByAbbr[abbr] : null
+    const cap = s ? (s.solar_capacity_gw || 0) + (s.wind_capacity_gw || 0) : 0
+    return {
+      fillColor: s ? getColor(cap) : '#334155',
+      fillOpacity: 0.8,
+      color: abbr === selectedState ? '#ffffff' : '#1e293b',
+      weight: abbr === selectedState ? 2.5 : 0.5,
+    }
+  }
 
-    const stateByAbbr = {}
-    allStates.forEach(s => { stateByAbbr[s.state] = s })
+  function onEachFeature(feature, layer) {
+    const abbr = nameToAbbr[feature.properties.name]
+    const s = abbr ? stateByAbbr[abbr] : null
+    if (s) {
+      layer.bindTooltip(
+        `<strong>${feature.properties.name}</strong><br/>☀️ Solar: ${s.solar_capacity_gw.toFixed(1)} GW &nbsp;|&nbsp; 🌬️ Wind: ${s.wind_capacity_gw.toFixed(1)} GW<br/>⚡ Rate: ${s.electricity_rate_cents_kwh?.toFixed(1) || '—'}¢/kWh &nbsp;|&nbsp; Score: ${s.solar_potential_score}`,
+        { sticky: true, className: 'map-tooltip' }
+      )
+    }
+    layer.on('click', () => { if (abbr) onSelectState(abbr) })
+  }
 
-    const maxCap = d3.max(allStates, s => (s.solar_capacity_gw || 0) + (s.wind_capacity_gw || 0)) || 1
-    const colorScale = d3.scaleSequential([0, maxCap], d3.interpolateYlOrRd)
-
-    svg.selectAll('path.state')
-      .data(stateFeatures.features)
-      .join('path')
-      .attr('class', 'state')
-      .attr('d', path)
-      .attr('fill', d => {
-        const abbr = FIPS_TO_ABBR[d.id]
-        const s = abbr ? stateByAbbr[abbr] : null
-        if (!s) return '#334155'
-        return colorScale((s.solar_capacity_gw || 0) + (s.wind_capacity_gw || 0))
-      })
-      .attr('stroke', d => FIPS_TO_ABBR[d.id] === selectedState ? '#ffffff' : '#1e293b')
-      .attr('stroke-width', d => FIPS_TO_ABBR[d.id] === selectedState ? 2.5 : 0.5)
-      .attr('cursor', 'pointer')
-      .on('click', (event, d) => {
-        const abbr = FIPS_TO_ABBR[d.id]
-        if (abbr) onSelectState(abbr)
-      })
-      .append('title')
-      .text(d => {
-        const abbr = FIPS_TO_ABBR[d.id]
-        const s = abbr ? stateByAbbr[abbr] : null
-        if (!s) return abbr || ''
-        return `${STATE_NAMES[abbr] || abbr}\nSolar: ${s.solar_capacity_gw.toFixed(1)} GW | Wind: ${s.wind_capacity_gw.toFixed(1)} GW`
-      })
-
-    // Color legend
-    const defs = svg.append('defs')
-    const grad = defs.append('linearGradient').attr('id', 'cap-grad')
-    d3.range(0, 1.01, 0.1).forEach(t => {
-      grad.append('stop').attr('offset', `${t * 100}%`).attr('stop-color', d3.interpolateYlOrRd(t))
-    })
-    const lx = W - 220, ly = H - 28
-    svg.append('text').attr('x', lx).attr('y', ly - 6).attr('fill', '#94a3b8').attr('font-size', 11).text('Renewables capacity →')
-    svg.append('rect').attr('x', lx).attr('y', ly).attr('width', 200).attr('height', 10)
-      .attr('fill', 'url(#cap-grad)').attr('rx', 3)
-    svg.append('text').attr('x', lx).attr('y', ly + 22).attr('fill', '#94a3b8').attr('font-size', 10).text('Low')
-    svg.append('text').attr('x', lx + 200).attr('y', ly + 22).attr('fill', '#94a3b8').attr('font-size', 10)
-      .attr('text-anchor', 'end').text(`${maxCap.toFixed(0)} GW`)
-  }, [usData, allStates, selectedState])
-
-  if (!usData) {
+  if (!geoData || allStates.length === 0) {
     return (
-      <div style={{ height: '420px', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(15,23,42,0.8)', borderRadius: '12px', color: '#94a3b8' }}>
+      <div style={{ height: '500px', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(15,23,42,0.8)', borderRadius: '12px', color: '#94a3b8' }}>
         Loading map data...
       </div>
     )
   }
 
   return (
-    <div style={{ background: 'rgba(15,23,42,0.8)', borderRadius: '12px', padding: '8px', border: '1px solid rgba(59,130,246,0.2)' }}>
-      <svg ref={svgRef} style={{ width: '100%', height: 'auto', display: 'block' }} />
+    <div style={{ borderRadius: '12px', overflow: 'hidden', border: '1px solid rgba(59,130,246,0.2)' }}>
+      <MapContainer center={[38, -97]} zoom={4} style={{ height: '500px', width: '100%' }} scrollWheelZoom={false}>
+        <TileLayer
+          url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
+          attribution='&copy; <a href="https://carto.com/">CARTO</a>'
+        />
+        <GeoJSON
+          key={selectedState + '-' + allStates.length}
+          data={geoData}
+          style={styleFeature}
+          onEachFeature={onEachFeature}
+        />
+      </MapContainer>
+      <div style={{ background: 'rgba(15,23,42,0.9)', padding: '0.5rem 1rem', display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.8rem', color: '#94a3b8' }}>
+        <span>Renewable Capacity:</span>
+        <div style={{ width: '150px', height: '10px', borderRadius: '4px', background: 'linear-gradient(to right, #ffffb2, #fd8d3c, #bd0026)' }} />
+        <span>Low → High ({maxCap.toFixed(0)} GW max)</span>
+      </div>
     </div>
   )
 }
