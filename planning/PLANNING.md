@@ -1,180 +1,177 @@
-# CDF Renewable Energy Dashboard - Planning Document
+# CDF Renewable Energy Dashboard — Planning Document
 
 **Submission Deadline**: April 12, 2026 at 1:00 PM EST
-**Build Date**: April 7, 2026
-**Status**: In Progress
+**Build Period**: April 6–12, 2026
+**Status**: Complete — All Tier 1, 2, and 3 features shipped and deployed
+
+---
 
 ## Executive Summary
 
-Building a 4-tab renewable energy investment analysis dashboard that integrates live public APIs, performs client-side financial modeling, and provides AI-powered analysis. Focused on Tier 1 requirements with clean architecture and production-quality code.
+Built a professional-grade, 4-tab renewable energy investment platform integrating live US government APIs (EIA, NREL), a Groq-powered AI analyst, full financial modeling with risk simulation, an interactive Leaflet map, and a suite of Tier 3 features including an investment grading system and portfolio builder. All deployed on Vercel at https://cdf-deploy-jash.vercel.app.
+
+---
 
 ## Tech Stack & Justification
 
 | Component | Choice | Why |
-|-----------|--------|-----|
-| **Backend** | Python FastAPI | Already set up, async support for multiple API calls, easy deployment on Render |
-| **Frontend** | React 18 + Vite | Already set up, fast HMR, ecosystem (Chart.js, Leaflet for maps) |
-| **Maps** | Leaflet.js | Lightweight, free, no API key required (uses OpenStreetMap tiles) |
-| **Financial Calc** | Client-side JavaScript | Instant responsiveness, no server round-trips, better UX |
-| **AI** | Anthropic Claude API | Already configured, free $5 credit, excellent for analysis tasks |
-| **Deployment** | Vercel (frontend) + Render (backend) | Free tiers, easy GitHub integration, fast |
+|---|---|---|
+| **Backend** | Python FastAPI | Async API calls, fast deployment on Render, clean endpoint design |
+| **Frontend** | React 18 + Vite | Fast HMR, Chart.js + react-leaflet ecosystem |
+| **Maps** | Leaflet + react-leaflet | Real tile map with zoom/pan, free (OpenStreetMap/CARTO tiles), no API key required |
+| **Charts** | Chart.js + react-chartjs-2 | Interactive line/bar/horizontal charts, responsive |
+| **Financial Calc** | Client-side JavaScript | Instant responsiveness, zero server roundtrip, better UX |
+| **AI** | Groq (Llama 3.3 70B) | Fast inference, live EIA market data injected as context |
+| **PDF Export** | jsPDF + html2canvas | Client-side generation, no server dependency |
+| **Excel Export** | xlsx (SheetJS) | Client-side 25-year financial model spreadsheet |
+| **Deployment** | Vercel (frontend) + Render (backend) | Free tiers, GitHub integration, fast CI/CD |
+
+---
 
 ## Public Data Sources
 
-| API | Purpose | Auth | Rate Limit |
-|-----|---------|------|-----------|
-| **EIA Open Data** | Electricity prices, capacity by state, fuel type | Free API key | 120/hour |
-| **NREL PVWatts** | Solar production estimates by location | Free API key | 100/day |
-| **NREL Wind Toolkit** | Wind resource data | Free API key | Included |
-| **OpenEI** | Utility rates by state/zip | Public data | Unlimited |
+| API | Purpose | Auth |
+|---|---|---|
+| **EIA Open Data v2** | Electricity prices, solar/wind capacity by state, 12-month trends | Free API key |
+| **NREL PVWatts v8** | Solar resource data, capacity factors by state | Free API key |
+| **CARTO Dark Matter** | Map tile layer for Leaflet choropleth | Free, no key required |
+| **US Atlas TopoJSON** | State boundary geometry | Public CDN |
 
-## Architecture Overview
+---
+
+## Architecture
 
 ### Data Flow
+
 ```
-Public APIs (EIA, NREL, FRED)
+EIA API + NREL API
     ↓
-Backend (FastAPI)
-    - Caching layer (avoid repeated API calls)
-    - Data normalization
-    - Financial calculations
+FastAPI Backend (24hr cache layer)
     ↓
-Frontend (React)
-    Tab 1 (Market Overview) ← Live electricity prices, capacity trends
-    Tab 2 (Project Calc)    ← User inputs + location data
-    Tab 3 (AI Research)     ← Market context + current calculator state
-    Tab 4 (Geographic)      ← Solar irradiance, electricity prices by region
+React Frontend
+    Tab 1 (Market Overview)  ← Live electricity prices, capacity, trends
+    Tab 2 (Project Calc)     ← User inputs, client-side IRR/NPV/LCOE math
+    Tab 3 (AI Research)      ← Live market context + calculator state
+    Tab 4 (Geographic)       ← Leaflet map, state rankings, compare mode
 
 Cross-Tab Flow:
-    - Tab 4 (map click) → Tab 2 (pre-fill location/rates)
-    - Tab 2 (scenario) → Tab 1 (compare to market avg)
-    - Tab 2 + Tab 4 state → Tab 3 (AI context)
+    Tab 4 (map click) → Tab 2 (auto-fill location + PPA rate)
+    Tab 2 (calculator state) → Tab 3 (AI sidebar context)
 ```
 
-### Backend Endpoints (New Design)
+### Backend Endpoints
 
 ```
-GET /api/market/
-  └─ electricity_prices (national average, trends)
-  └─ capacity_by_fuel (solar, wind, hydro, etc.)
-  └─ state_rankings (best states for solar/wind)
-
-GET /api/location/{state}/{zip}
-  └─ electricity_rates ($/kWh)
-  └─ solar_resource (kWh/m2/day)
-  └─ wind_resource (avg wind speed)
-
-POST /api/calculate
-  └─ Input: project type (solar/wind), size_kw, location, financing
-  └─ Output: IRR, NPV, LCOE, annual_production, cashflow
-
-GET /api/research/context
-  └─ Returns current market data snapshot for AI
-
-POST /api/chat
-  └─ AI research assistant with live data context
+GET  /api/health                 — Status, configured API keys
+GET  /api/market/summary         — Live EIA price, capacity, 12-month trend, top states
+GET  /api/market/states          — All 50 states: solar/wind GW, rates, potential scores
+GET  /api/location/{state}       — Single state electricity rate + capacity factors
+POST /api/calculate              — Project economics (mirrors client-side math)
+POST /api/monte-carlo            — 2,000-iteration NumPy simulation
+GET  /api/research/context       — Aggregated market snapshot for AI
+POST /api/chat                   — Groq AI with live market data + project context
 ```
 
-### Frontend Components (New Design)
+---
+
+## What Was Built
+
+### Tier 1 — Core Requirements (Complete)
 
 **Tab 1: Market Overview**
-- Market summary cards (electricity price, capacity, growth rates)
-- Electricity price trend chart (EIA historical data)
-- Capacity by fuel type bar chart
-- Top 10 states ranking
+- Live EIA electricity price, total renewable capacity, solar GW, wind GW
+- Renewables % of total US generation, YoY growth
+- 12-month electricity price trend (line chart)
+- Top 3 states for solar + top 3 for wind (tables with capacity, score, irradiance/wind speed)
+- Data provenance badge on every single figure (source, endpoint, timestamp)
+- Refresh Data button
+- AI Anomaly Detection — Claude analyzes the live market data for investor signals
 
 **Tab 2: Project Economics Calculator**
-- Solar/Wind selector
-- Input form: System size, location (state/zip), capacity factor, cost ($/kW), degradation
-- Finance inputs: Debt %, interest rate, term, ITC/PTC assumptions
-- Live output: Annual production, revenue, IRR, NPV, LCOE, payback period
-- Scenario toggle: Base / Optimistic / Conservative
-- Cashflow 10-year chart
+- Technology selector: Solar PV / Wind Turbine / Hybrid (Solar+Wind 50/50)
+- State selector with search (all 50 states + DC)
+- Sliders: system size (0.5–100 MW), capacity factor, install cost, PPA rate, O&M, debt ratio, interest rate, loan term, ITC %, degradation rate, PPA escalation rate
+- Scenario presets: Base Case / Optimistic / Conservative
+- Outputs: IRR, NPV (8% discount), LCOE, payback period, annual production, revenue, OpEx, net cash flow, CAPEX, debt, equity, ITC benefit
+- 25-year annual cash flow bar chart
 
 **Tab 3: AI Research Assistant**
-- Chat interface
-- Pre-loaded questions about renewable energy
-- AI context includes: current market data + user's calculator inputs
-- Conversation history persists in session
+- Groq (Llama 3.3 70B) with live EIA market data injected as system context
+- 4 analyst modes: Investment Analyst, Market Opportunities, Technology & Engineering, Policy & Incentives
+- 4 quick-prompt buttons per mode
+- Free-text chat with full conversation history
+- Project context sidebar showing live-synced calculator state (cross-tab flow #2)
+- Save research notes, Clear conversation
 
-**Tab 4: Geographic Visualization**
-- Interactive US map (Leaflet)
-- Data overlays: Solar irradiance (color intensity) OR Electricity prices (color by cost)
-- Clickable states: Show solar/wind potential, electricity rates
-- On click, pre-fill calculator with state's average values
+**Tab 4: Geographic Map**
+- Leaflet choropleth map (CartoDB Dark Matter tiles — full zoom/pan)
+- All 50 states colored by total renewable capacity (YlOrRd gradient scale)
+- Hover tooltip: state name, solar GW, wind GW, electricity rate, investment score
+- Click state: highlights it, shows detail panel, AND auto-fills Calculator location + PPA rate (cross-tab flow #1)
+- Compare States mode: multi-select state cards, side-by-side metrics table
+- AI Compare: sends selected states to Groq for investment trade-off analysis
 
-## Prioritization & Time Breakdown
+### Tier 2 — Advanced Features (Complete)
 
-**Total Time Available**: ~10-12 hours (April 7 all day)
+- **Sensitivity Matrix**: 7×7 IRR grid varying capacity factor (±30%) and PPA rate (±30%); color-coded by return threshold bands; current inputs highlighted
+- **Monte Carlo Simulation**: 2,000 scenarios with NumPy; varies cap factor (±12%), PPA rate (±15%), install cost (±10%), interest rate (±15%); P10/P25/P50/P75/P90 percentiles; target IRR slider; probability of success; IRR distribution histogram
+- **AI Investment Memo**: 6-section structured memo (Executive Summary, Project Overview, Market Context, Financial Highlights, Key Risks, Recommendation) generated by Groq from live project parameters
+- **PDF Export**: Full project report via jsPDF + html2canvas
+- **Excel Export**: 25-year financial model spreadsheet via SheetJS
 
-| Phase | Time | Tasks |
-|-------|------|-------|
-| 1. Setup | 30 min | Get API keys, test one endpoint, set environment variables |
-| 2. Backend | 2 hrs | Redesign endpoints, integrate EIA + NREL APIs, caching |
-| 3. Tab 1 | 1.5 hrs | Market Overview component + chart |
-| 4. Tab 2 | 2.5 hrs | Project Calculator (most complex) |
-| 5. Tab 3 | 1.5 hrs | AI Research with context |
-| 6. Tab 4 | 1.5 hrs | Geographic map + data overlay |
-| 7. Cross-Tab | 1 hr | Wire data flow between tabs |
-| 8. Deploy | 1 hr | Vercel + Render + env vars |
-| 9. Polish | 1 hr | UI tweaks, error handling, testing |
+### Tier 3 — Exceptional (Complete)
 
-**If time is short, cut in this order:**
-1. ~~Sensitivity analysis (Tab 2 stretch)~~ → Skip
-2. ~~PDF export~~ → Skip
-3. Tab 4 (Geographic) → Simplify to text-based state selector instead of map
-4. Stretch AI features → Keep basic Q&A only
+- **Deal Score Card**: Automated 0–100 investment grade (A / A− / B+ / B / C / D) calculated from IRR (35%), payback period (25%), LCOE (20%), and resource quality/capacity factor (20%); updates live on every slider move; letter grade colored green→red; per-factor ✅/⚠️/❌ breakdown
+- **Grid Parity Indicator**: Compares user's PPA rate against the selected state's live grid electricity rate; shows margin in cents and "strong offtake / verify offtake" signal; appears automatically via cross-tab map flow
+- **CO2 / Climate Impact**: Annual CO2 offset in tonnes (0.386 kg/kWh US grid avg), homes powered (10,649 kWh/yr avg), cars removed (4,600 kg CO2/car/yr), trees equivalent (21.77 kg CO2/tree/yr)
+- **ROI vs Asset Classes**: Horizontal bar chart comparing project IRR against S&P 500 (10%), real estate (7%), high-yield bonds (8%), 10-year Treasury (4.5%)
+- **Portfolio Builder**: Add any number of projects; shows blended CAPEX-weighted IRR, combined NPV, total annual production, total CO2 offset, total homes powered; per-project table with IRR color-graded green/amber/red
+- **Hybrid Mode**: Solar+Wind 50/50 project type; runs calcLocally() twice with half the system size each, combines results; IRR/LCOE/payback averaged, NPV/CAPEX/production summed
 
-## What We're Keeping from Original Build
+---
 
-✅ Backend structure (FastAPI app)
-✅ React + Vite frontend
-✅ API client pattern with axios
-✅ Claude integration (redesigned with live data context)
+## Prioritization Decisions
 
-## What's Changing
+### What was cut from original plan (and why)
+- FRED API integration — EIA alone provided sufficient economic data
+- Per-zip-code granularity — state-level sufficient for investment decisions
 
-❌ Mock data → ✅ Live APIs (EIA, NREL)
-❌ Your 5 projects → ✅ Generic project calculator
-❌ Portfolio chat context → ✅ Market data context
-❌ 5-project portfolio → ✅ User can model any solar/wind project
+### What was added beyond original plan
+- Monte Carlo simulation (backend NumPy)
+- Sensitivity matrix heatmap
+- PDF + Excel export
+- AI Investment Memo
+- Leaflet tile map (upgraded from D3 SVG choropleth)
+- Deal Score Card + Grid Parity
+- CO2 / Climate Impact panel
+- ROI benchmarking chart
+- Portfolio Builder
+- Hybrid project type
+
+---
 
 ## Evaluation Alignment
 
-| Criteria | How We Address It |
-|----------|-------------------|
-| **AI Integration (25%)** | Claude research assistant with live market data context. AI cites sources. |
-| **Technical Architecture (25%)** | Clean FastAPI backend, React component structure, cross-tab data flow, caching layer |
-| **UI/UX (20%)** | Professional design, responsive for 1280px+, loading states, real charts (Chart.js) + map (Leaflet) |
-| **Data Engineering (15%)** | Successfully integrate EIA + NREL APIs, normalize data, handle rate limits + failures gracefully |
-| **Project Management (15%)** | This planning doc, clean git history, README with architecture, 5-min demo video |
+| Criterion | Weight | How We Address It |
+|---|---|---|
+| **AI Integration (25%)** | 25% | Groq AI in 4 specialist modes with live EIA market data context; anomaly detection on Tab 1; investment memo generation; multi-state comparison analysis; project context auto-synced from calculator |
+| **Technical Architecture (25%)** | 25% | FastAPI backend with 24hr caching; all calculator math runs client-side (zero latency); two cross-tab data flows wired through React state; clean component separation |
+| **UI/UX & Data Viz (20%)** | 20% | Leaflet tile map with choropleth; line/bar/horizontal-bar charts; sensitivity heatmap; Monte Carlo histogram; deal score card; fully responsive layout; dark theme |
+| **Data Engineering (15%)** | 15% | EIA v2 + NREL APIs; provenance badge on every data point (source + endpoint + timestamp); 24hr backend cache; graceful degradation on API failure |
+| **Project Management (15%)** | 15% | This planning doc; README with full feature inventory; architecture doc; clean git history organized by tier; deployed before deadline |
 
-## Success Metrics
+---
 
-By end of day:
-- [ ] Live deployment URL working
-- [ ] All 4 tabs functional (Tier 1 requirements met)
-- [ ] Cross-tab data flow working (2+ instances)
-- [ ] AI research assistant responds with specific numbers from live data
-- [ ] No crashes during 5-min demo
-- [ ] 5-minute walkthrough video recorded
-- [ ] README updated with live URL + architecture
-- [ ] Clean git history (commits document progress)
+## Success Metrics — Final Status
 
-## Risk Mitigation
-
-| Risk | Mitigation |
-|------|-----------|
-| API rate limiting | Implement backend caching (60-300 sec TTL) |
-| API failures | Graceful degradation, fallback mock data for demo |
-| Scope creep | Tier 1 only, no stretches unless time permits |
-| Deployment issues | Test deployment early (Day 1), not last minute |
-| No internet during demo | Pre-cache data locally, use browser DevTools to mock API if needed |
-
-## Next Steps
-
-1. Get API keys (5 min)
-2. Test API integrations (30 min)
-3. Redesign backend (2 hrs)
-4. Build frontend incrementally (6-7 hrs)
-5. Deploy + polish (2 hrs)
+- [x] Live deployment URL working
+- [x] All 4 tabs functional — Tier 1 requirements fully met
+- [x] Cross-tab data flow — 2 instances (map→calculator, calculator→AI)
+- [x] AI responds with specific numbers from live EIA data
+- [x] Tier 2 features — sensitivity matrix, Monte Carlo, PDF/Excel, AI memo
+- [x] Tier 3 features — deal score, portfolio builder, CO2 impact, ROI benchmarking
+- [x] No crashes during demo
+- [x] README updated with live URL + full feature inventory
+- [x] Planning document updated
+- [x] Clean git history organized by tier and feature
+- [ ] 5-minute walkthrough video — recording April 12 before 1pm EST
